@@ -2,14 +2,15 @@
 export const FACTION_ALLIED = 'allied';
 export const FACTION_SOVIET = 'soviet';
 // 阵营显示名（用于「XX专属单位」这类提示）
-export const FACTION_NAMES = { [FACTION_ALLIED]: '盟军', [FACTION_SOVIET]: '苏联' };
+export const FACTION_NAMES = { [FACTION_ALLIED]: '蓝方', [FACTION_SOVIET]: '红方' };
 
 // 原版红警经典单位和建筑定义
 
 // ==================== 建筑定义 ====================
 export const BUILDING_DEFS = {
   // 基础建筑（双方共有）
-  base:        { name:'建造厂',   cost:0,    hp:2200, size:3, power:50, powerUse:0,  buildTime:0, requires:[], category:'buildings', icon:'#7f8c8d', desc:'基地核心，提供50电力', faction: null },
+  // 指挥所：沙盘的唯一胜负目标，被摧毁即战败
+  base:        { name:'指挥所',   cost:0,    hp:1800, size:3, power:50, powerUse:0,  buildTime:0, requires:[], category:'buildings', icon:'#7f8c8d', desc:'指挥所，被摧毁即战败', faction: null },
   powerPlant:  { name:'发电厂',   cost:300,  hp:500,  size:2, power:200,powerUse:0,  buildTime:4, requires:['base'], category:'buildings', icon:'#f1c40f', desc:'提供200电力', faction: null },
   refinery:    { name:'矿厂',     cost:500,  hp:700,  size:3, powerUse:30, buildTime:6, requires:['base'], category:'buildings', icon:'#e67e22', desc:'精炼矿石，附赠采矿车', faction: null },
   barracks:    { name:'兵营',     cost:400,  hp:600,  size:2, powerUse:20, buildTime:5, requires:['powerPlant'], category:'buildings', icon:'#27ae60', desc:'训练步兵单位', faction: null },
@@ -35,7 +36,7 @@ export const BUILDING_DEFS = {
 export const DEFENSE_DEFS = {
   // 基础防御（双方共有）
   wall:    { name:'城墙',       cost:50,   hp:400, size:1, powerUse:0,  buildTime:1, requires:['base'],       range:0, damage:0,   fireRate:0,  category:'defenses', icon:'#7f8c8d', desc:'廉价障碍物', faction: null },
-  pillbox: { name:'碉堡',       cost:300,  hp:550, size:1, powerUse:10, buildTime:4, requires:['barracks'],   range:5, damage:20,  fireRate:25, category:'defenses', icon:'#d35400', desc:'快速射击步兵防御', faction: null },
+  pillbox: { name:'碉堡',       cost:300,  hp:400, size:1, powerUse:10, buildTime:4, requires:['barracks'],   range:5, damage:12,  fireRate:30, category:'defenses', icon:'#d35400', desc:'快速射击步兵防御', faction: null },
   
   // 盟军专属防御
   prismTower: { name:'光棱塔',    cost:1200, hp:500, size:1, powerUse:60, buildTime:6, requires:['alliedTech'], range:10, damage:120, fireRate:60, category:'defenses', icon:'#9b59b6', desc:'高能激光防御，可连线增强', faction: FACTION_ALLIED, canLink: true },
@@ -46,7 +47,7 @@ export const DEFENSE_DEFS = {
   flakCannon: { name:'高射炮',   cost:800, hp:500, size:1, powerUse:30, buildTime:5, requires:['warFactory'], range:10, damage:35, fireRate:15, category:'defenses', icon:'#c0392b', desc:'苏联防空炮，对空专用', faction: FACTION_SOVIET, antiAir: true, splashRadius: 1 },
   
   // 通用防御
-  turret:  { name:'重炮塔',     cost:600,  hp:700, size:1, powerUse:20, buildTime:5, requires:['warFactory'], range:7, damage:40,  fireRate:48, category:'defenses', icon:'#8e44ad', desc:'反装甲重炮', faction: null },
+  turret:  { name:'重炮塔',     cost:600,  hp:500, size:1, powerUse:20, buildTime:5, requires:['warFactory'], range:7, damage:30,  fireRate:60, category:'defenses', icon:'#8e44ad', desc:'反装甲重炮', faction: null },
 };
 
 // ==================== 单位定义 ====================
@@ -112,6 +113,12 @@ export const UNIT_DEFS = {
   aegis:      { name:'神盾巡洋舰', cost:1200, hp:350, speed:1.8, damage:30,  range:10,fireRate:15, requires:['warFactory','alliedTech'], buildTime:8, type:'naval', category:'units', icon:'#9b59b6', desc:'防空专用', faction: FACTION_ALLIED, antiAir: true },
   submarine:  { name:'潜艇',       cost:1000, hp:350, speed:1.8, damage:80,  range:6, fireRate:60, requires:['warFactory','sovietTech'], buildTime:7, type:'naval', category:'units', icon:'#2c3e50', desc:'苏联隐形潜艇', faction: FACTION_SOVIET, stealth: true, torpedo: true },
   dreadnought:{ name:'无畏级战舰', cost:2000, hp:600, speed:1.2, damage:150, range:16,fireRate:100,requires:['warFactory','sovietTech'], buildTime:12, type:'naval', category:'units', icon:'#c0392b', desc:'苏联重型导弹舰', faction: FACTION_SOVIET, missile: true },
+
+  // ==================== 虚拟成员（沙盘核心单位）====================
+  // 每名成员都是一个 LLM 智能体：数值是可切换武器的基准值，
+  // 实际战斗参数由 sandbox/memberDefs.js 的武器档案在切换时覆盖。
+  // 血量刻意做厚：成员是「英雄」，要能承受一两轮交火并做出撤退判断。
+  member:     { name:'成员',      cost:0,    hp:380, speed:2.0, damage:14,  range:4.5, fireRate:20, requires:[], buildTime:0, type:'infantry', category:'units', icon:'#f1c40f', desc:'虚拟成员：可使用机枪与火箭筒', faction: null, member: true, hero: true },
 };
 
 // ==================== 装甲类型定义 ====================
@@ -159,7 +166,7 @@ export const ARMOR_BY_TYPE = {
   wall: 'steel', pillbox: 'concrete', prismTower: 'concrete', patriot: 'concrete',
   tesla: 'concrete', flakCannon: 'concrete', turret: 'steel',
   // --- 步兵（一律无装甲，靠血量和机动存活）---
-  infantry: 'none', conscript: 'none', rocket: 'none', flakTrooper: 'none',
+  infantry: 'none', conscript: 'none', rocket: 'none', flakTrooper: 'none', member: 'none',
   engineer: 'none', spy: 'none', tanya: 'none', attackDog: 'none', crazyIvan: 'none',
   // --- 车辆 ---
   harvester: 'light', warMiner: 'medium', grizzly: 'medium', rhino: 'heavy',
@@ -174,7 +181,7 @@ export const ARMOR_BY_TYPE = {
 
 export const DAMAGE_BY_TYPE = {
   // --- 步兵 ---
-  infantry: 'bullet', conscript: 'bullet', attackDog: 'bullet', tanya: 'bullet',
+  infantry: 'bullet', conscript: 'bullet', attackDog: 'bullet', tanya: 'bullet', member: 'bullet',
   rocket: 'rocket', flakTrooper: 'rocket',
   // --- 车辆 ---
   grizzly: 'cannon', rhino: 'cannon', apocalypse: 'cannon', mirage: 'cannon', arty: 'cannon',

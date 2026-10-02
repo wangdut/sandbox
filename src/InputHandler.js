@@ -258,6 +258,11 @@ export class InputHandler {
       if (ev.code === 'Space') { ev.preventDefault(); callbacks.onTogglePause(); }
       if (ev.code === 'KeyH' && !ev.ctrlKey) { ev.preventDefault(); callbacks.onShowHelp(); }
       if (ev.code === 'KeyS' && !ev.ctrlKey && callbacks.selectedUnits.length > 0) { ev.preventDefault(); callbacks.onCommandStop(); }
+      // W：切换选中成员的武器（机枪 ↔ 火箭筒）
+      if (ev.code === 'KeyW' && !ev.ctrlKey && callbacks.selectedUnits.length > 0 && callbacks.onToggleWeapon) {
+        ev.preventDefault();
+        callbacks.onToggleWeapon();
+      }
       if (ev.code === 'KeyA' && !ev.ctrlKey && callbacks.selectedUnits.length > 0) {
         ev.preventDefault();
         callbacks.onNotify('\u653b\u51fb\u6a21\u5f0f\uff1a\u79fb\u52a8\u5e76\u653b\u51fb\u6cbf\u9014\u654c\u4eba', 'info');

@@ -1,6 +1,7 @@
 export const TILE_SIZE = 32;
-export const MAP_WIDTH = 72;
-export const MAP_HEIGHT = 72;
+// 沙盘尺度：40×40 的小型对称战场，双基地对角相望，交战节奏快、便于观战调试
+export const MAP_WIDTH = 40;
+export const MAP_HEIGHT = 40;
 // 每秒帧数。冷却/建造/生产计时一律按帧存放（timer++），
 // 所以凡是「秒」的定义都必须 × FPS 换算，否则会差 60 倍。
 export const FPS = 60;
@@ -13,9 +14,12 @@ export const COLOR_SOVIET = '#c0392b', COLOR_SOVIET_DARK = '#7b241c';
 export const COLOR_PLAYER = '#4a9fd4', COLOR_PLAYER_DARK = '#1a5276';
 export const COLOR_ENEMY = '#c0392c', COLOR_ENEMY_DARK = '#922b21';
 
-// 阵营定义
+// 阵营定义（内部键沿用基座的 allied/soviet，对外显示为蓝方/红方）
 export const FACTION_ALLIED = 'allied';
 export const FACTION_SOVIET = 'soviet';
+
+// 队伍显示名：0=蓝方（上帝玩家），1=红方（电脑）
+export const TEAM_NAMES = ['蓝方', '红方'];
 
 export const SPATIAL_CELL = 8;
 

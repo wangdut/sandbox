@@ -15,6 +15,9 @@ import { MAP_WIDTH, MAP_HEIGHT, TILE_SIZE, TEAM_PLAYER } from './constants.js';
  */
 export class FogOfWar {
   constructor() {
+    // 沙盘为「上帝视角」观战：默认关闭迷雾，全图可见。
+    // 关闭时 update 直接跳过、所有可见性查询恒为 true、render 不绘制。
+    this.enabled = true;
     this.visibility = new Uint8Array(MAP_WIDTH * MAP_HEIGHT);
     this.revealedOnce = new Uint8Array(MAP_WIDTH * MAP_HEIGHT);
     this.visibleTiles = [];   // 当前处于状态2的格子索引
@@ -42,6 +45,7 @@ export class FogOfWar {
    * 更新视野 - 根据所有友方单位和建筑的位置计算视野
    */
   update(entities) {
+    if (!this.enabled) return;
     // 将上一帧可见的格子降级为"已探索但无视野"
     const list = this.visibleTiles;
     for (let i = 0; i < list.length; i++) {
@@ -144,6 +148,7 @@ export class FogOfWar {
    * 检查一个格子是否可见（有当前视野）
    */
   isVisible(x, y) {
+    if (!this.enabled) return true;
     if (x < 0 || x >= MAP_WIDTH || y < 0 || y >= MAP_HEIGHT) return false;
     return this.visibility[y * MAP_WIDTH + x] === 2;
   }
@@ -152,6 +157,7 @@ export class FogOfWar {
    * 检查一个格子是否被探索过（有地形信息但可能没有当前视野）
    */
   isExplored(x, y) {
+    if (!this.enabled) return true;
     if (x < 0 || x >= MAP_WIDTH || y < 0 || y >= MAP_HEIGHT) return false;
     return this.revealedOnce[y * MAP_WIDTH + x] === 1;
   }
@@ -167,6 +173,7 @@ export class FogOfWar {
    * 检查一个实体是否可见
    */
   isEntityVisible(entity) {
+    if (!this.enabled) return true;
     const ex = entity.x + (entity.isBuilding ? entity.size / 2 : 0.5);
     const ey = entity.y + (entity.isBuilding ? entity.size / 2 : 0.5);
     return this.isVisible(Math.floor(ex), Math.floor(ey));
@@ -178,6 +185,7 @@ export class FogOfWar {
    * 可传 destW/destH 以其他尺寸绘制（如小地图 1:1 覆盖）
    */
   render(ctx, destW, destH) {
+    if (!this.enabled) return;
     this._ensureCanvas();
     if (this._dirty) {
       this._redrawFogCanvas();

@@ -1,0 +1,61 @@
+/* 虚拟沙盘专属样式：在基座红警皮肤之上做减法与增补 */
+
+/* ===== 隐藏基座的经济发展/建造相关 UI（沙盘为极简对抗） ===== */
+body.sandbox #topBar .res-group,
+body.sandbox #topBar .sep { display: none; }
+body.sandbox #buildTabs,
+body.sandbox #buildList,
+body.sandbox #actionPanel { display: none; }
+body.sandbox #superWeaponPanel { display: none !important; }
+
+/* ===== 成员面板 ===== */
+#memberPanel {
+  flex-shrink: 0;
+  border-bottom: 1px solid #2a2a3a;
+  background: #0a0a14;
+}
+#memberPanelHeader {
+  font-size: 10px;
+  letter-spacing: 3px;
+  color: #c0392b;
+  padding: 8px 10px 4px;
+}
+#memberList { padding: 0 8px 8px; }
+
+.mp-card {
+  position: relative;
+  background: #10101c;
+  border: 1px solid #23233a;
+  border-left: 3px solid #4a9fd4;
+  border-radius: 2px;
+  padding: 5px 8px;
+  margin-bottom: 5px;
+}
+.mp-card.red { border-left-color: #c0392b; }
+.mp-card.dead { opacity: .55; }
+.mp-name {
+  font-size: 12px;
+  font-weight: bold;
+  color: #eee;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+.mp-team { font-size: 9px; color: #777; font-weight: normal; letter-spacing: 1px; }
+.mp-card.blue .mp-team { color: #4a9fd4; }
+.mp-card.red .mp-team { color: #c0392b; }
+.mp-bar {
+  height: 5px;
+  background: #26263a;
+  margin: 4px 0 3px;
+  border-radius: 2px;
+  overflow: hidden;
+}
+.mp-bar > i { display: block; height: 100%; }
+.mp-meta { font-size: 10px; color: #999; }
+.mp-state { font-size: 10px; color: #e74c3c; margin-top: 2px; }
+.mp-state.dim { color: #666; }
+
+/* ===== 阵营选择卡：红/蓝色彩呼应 ===== */
+body.sandbox .mode-card.easy { border-color: #4a9fd4; }
+body.sandbox .mode-card.easy:hover { box-shadow: 0 0 18px rgba(74, 159, 212, .35); }

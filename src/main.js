@@ -5,7 +5,10 @@ import { GameState } from './GameState.js';
 import { Renderer } from './Renderer.js';
 import { UIManager } from './UI.js';
 import { InputHandler } from './InputHandler.js';
-import { EnemyAI } from './EnemyAI.js';
+import { SandboxAI } from './sandbox/SandboxAI.js';
+import { buildSandboxScenario } from './sandbox/scenario.js';
+import { MemberSystem } from './sandbox/memberSystem.js';
+import { MemberPanel } from './ui/MemberPanel.js';
 import { AudioManager, audioManager } from './AudioManager.js';
 import { SaveManager } from './SaveManager.js';
 import { setNotifier } from './Notifications.js';
@@ -20,7 +23,7 @@ import { updateBuildingAI, updateRepairBays, spawnProducedUnit, findProducingBui
 setNotifier(notify);
 
 let canvas, minimapCanvas, ctx, minimapCtx;
-let gameState, renderer, ui, input, enemyAI, saveManager;
+let gameState, renderer, ui, input, sandboxAI, saveManager, memberSystem, memberPanel;
 let camera = { x: 0, y: 0, zoom: 1 };
 let selectedUnits = [], selectedBuilding = null;
 let placingBuilding = false, placingType = null;
@@ -48,11 +51,13 @@ function startGame(diff) {
   Entity.counter = 0;
   gameState = new GameState();
   gameState._playExplosionSound = function() { audioManager.playExplosion(); };
-  gameState.map.generate();
-  gameState.initPlayer();
-  gameState.initEnemy(difficulty);
-  camera.x = 3 * TILE_SIZE * camera.zoom - (canvas.width - 300) / 2;
-  camera.y = 3 * TILE_SIZE * camera.zoom - canvas.height / 2;
+  // 沙盘固定布景（替代基座的随机地图 + 采集开局）
+  const scenario = buildSandboxScenario(gameState);
+  // 上帝视角：全图可见，便于观察 4 名成员的自主行为
+  gameState.fogOfWar.enabled = false;
+  const spawn = scenario.spawn;
+  camera.x = (spawn.x + 1.5) * TILE_SIZE * camera.zoom - (canvas.width - 300) / 2;
+  camera.y = (spawn.y + 1.5) * TILE_SIZE * camera.zoom - canvas.height / 2;
   camera.x = Math.max(0, camera.x);
   camera.y = Math.max(0, camera.y);
   selectedUnits = [];
@@ -104,6 +109,7 @@ function startGame(diff) {
     onShowHelp: function() { ui.showHelp(); },
     onTogglePause: togglePause,
     onCommandStop: commandStop,
+    onToggleWeapon: toggleSelectedWeapon,
     onSetGroup: setGroup,
     onSelectGroup: selectGroup,
     onCycleTab: function() {
@@ -116,21 +122,33 @@ function startGame(diff) {
     superWeaponTargeting: null,
     onSuperWeaponFire: fireSuperWeapon
   });
-  enemyAI = new EnemyAI();
-  enemyAI.init({
-    // 适配器：EnemyAI 按 (unit) 调用，这里补上 gameState 与当前帧号
+  // 红方（电脑阵营）驱动：M1 为脚本兜底，M2 由 LLM 代理接管决策
+  sandboxAI = new SandboxAI();
+  sandboxAI.init({
+    // 适配器：按 (unit) 调用，这里补上 gameState 与当前帧号
     updateUnitAI: function(unit) { return updateUnitAI(gameState, unit, frameCount); },
     notify: notify,
     playAlertSound: function() { audioManager.playAlert(); }
   });
+  // 成员系统：阵亡重生、缓慢回血、武器切换
+  memberSystem = new MemberSystem();
+  memberSystem.init(gameState);
+  memberPanel = new MemberPanel();
+  memberPanel.init();
+  memberPanel.update(gameState, memberSystem);
   saveManager = new SaveManager();
   wireSuperWeaponCallbacks(gameState.superWeaponManager);
   // 调试/测试钩子
   window.__game = gameState;
   window.__input = input;
   window.__ui = ui;
+  window.__memberSystem = memberSystem;
   ui.renderGroupBar(gameState);
   ui.updateBuildList(gameState);
+  // 开局自动选中己方两名成员，玩家可立即右键指挥
+  memberSystem.liveMembers(gameState).forEach(function(u) {
+    if (u.team === TEAM_PLAYER) { u.selected = true; selectedUnits.push(u); }
+  });
   gameLoop();
 }
 
@@ -174,6 +192,8 @@ function gameLoop() {
       updateMinimapAlerts();
       updateResources();
       updateEnemyAI();
+      memberSystem.update(gameState, frameCount);
+      memberPanel.update(gameState, memberSystem);
       ui.updateNotification();
       checkGameOver();
       if (gameState.gameOver) break;
@@ -315,7 +335,24 @@ function updateResources() {
 }
 
 function updateEnemyAI() {
-  enemyAI.update(gameState, difficulty, frameCount);
+  sandboxAI.update(gameState, difficulty, frameCount);
+}
+
+/**
+ * 切换选中成员的武器（机枪 ↔ 火箭筒）
+ */
+function toggleSelectedWeapon() {
+  var sel = input ? input._callbacks.selectedUnits : selectedUnits;
+  var n = 0;
+  sel.forEach(function(u) {
+    if (u.isMember && memberSystem.toggleWeapon(u)) n++;
+  });
+  if (n > 0) {
+    var first = sel.find(function(u) { return u.isMember; });
+    notify('切换武器：' + first.name + ' → ' + (first.weaponMode === 'rocket' ? '火箭筒' : '机枪'), 'info');
+  } else {
+    notify('请先选中成员（金色光环单位）', 'warn');
+  }
 }
 
 function startBuild(type, team) {
@@ -507,7 +544,7 @@ function selectGroup(n) {
 
 function saveGame() {
   if (!gameState || !gameRunning) { notify('\u65e0\u6cd5\u5b58\u6863\uff1a\u6e38\u620f\u672a\u8fd0\u884c', 'warn'); return; }
-  var ok = saveManager.save(gameState, camera, difficulty, frameCount, enemyAI);
+  var ok = saveManager.save(gameState, camera, difficulty, frameCount, sandboxAI);
   if (ok) { notify('\u6e38\u620f\u5df2\u5b58\u6863', 'info'); audioManager.playBuild(); }
   else notify('\u5b58\u6863\u5931\u8d25', 'danger');
 }
@@ -517,6 +554,10 @@ function loadGame() {
   if (!result) { notify('\u6ca1\u6709\u5b58\u6863\u6216\u5b58\u6863\u635f\u574f', 'warn'); return; }
   gameState = result.gameState;
   gameState._playExplosionSound = function() { audioManager.playExplosion(); };
+  // 读档后同样保持上帝视角，并重建成员槽位（实体 id 已变）
+  gameState.fogOfWar.enabled = false;
+  memberSystem.init(gameState);
+  memberPanel._sig = '';
   wireSuperWeaponCallbacks(gameState.superWeaponManager);
   gameState.superWeaponManager._statusCount = 0;
   for (var ssi = 0; ssi < gameState.entities.length; ssi++) {
@@ -534,11 +575,11 @@ function loadGame() {
   frameCount = result.frameCount;
   var aiState = result.enemyAIState;
   if (aiState) {
-    enemyAI.attackWave = aiState.attackWave || 0;
-    enemyAI.aiTimer = aiState.aiTimer || 0;
-    enemyAI.buildQueue = aiState.buildQueue || [];
-    enemyAI.attackTimer = aiState.attackTimer || 0;
-    enemyAI.scoutTimer = aiState.scoutTimer || 0;
+    sandboxAI.attackWave = aiState.attackWave || 0;
+    sandboxAI.aiTimer = aiState.aiTimer || 0;
+    sandboxAI.buildQueue = aiState.buildQueue || [];
+    sandboxAI.attackTimer = aiState.attackTimer || 0;
+    sandboxAI.scoutTimer = aiState.scoutTimer || 0;
   }
   gameStartTime = result.gameStartTime;
   selectedUnits.length = 0;

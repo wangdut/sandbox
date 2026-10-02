@@ -112,6 +112,12 @@ export class Entity {
     this.hero = (def && def.hero) || false;
     this.c4 = (def && def.c4) || false;
     this.canBomb = (def && def.canBomb) || false;
+
+    // 虚拟成员标记（沙盘）：受 LLM 驱动的英雄单位，可切换武器、阵亡后重生
+    this.isMember = (def && def.member) || false;
+    this.memberKey = null;   // 成员唯一标识（如 'blue_1'），重生时用于复原
+    this.memberName = null;  // 显示名（雷霆/寒鸦/烈焰/夜枭）
+    this.weaponMode = 'mg';  // 当前武器档案键（见 sandbox/memberDefs.js）
     
     // 渲染相关
     this.renderTurretAngle = 0;

@@ -3,30 +3,27 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>红警网页复刻版</title>
+<title>虚拟沙盘 · 红警风即时战术</title>
 <link rel="stylesheet" href="css/style.css">
+<link rel="stylesheet" href="css/sandbox.css">
 </head>
-<body>
+<body class="sandbox">
 
 <div id="startScreen">
-  <h1>RED ALERT</h1>
-  <h2>红警网页复刻版</h2>
-  <p class="sub">即时战略 · 摧毁敌方建造厂以获得胜利 · 非官方复刻，与 EA 无关</p>
+  <h1>VIRTUAL SANDBOX</h1>
+  <h2>虚拟沙盘 · 红警风即时战术</h2>
+  <p class="sub">4 名虚拟成员 · 你指挥蓝方 2 名 · 摧毁红方指挥所即获胜</p>
   <div class="mode-container">
-    <div class="mode-card easy" onclick="startGame('easy')">
-      <h3>简单</h3>
-      <p>AI 资源较少<br>进攻缓慢温和<br>新手入门推荐</p>
+    <div class="mode-card easy" onclick="startGame('蓝方')">
+      <h3>蓝方 · 上帝玩家</h3>
+      <p>你指挥雷霆与寒鸦<br>先熟悉操作（键鼠直接指挥）<br>打字下令将在 M2 接入</p>
     </div>
-    <div class="mode-card normal" onclick="startGame('normal')">
-      <h3>普通</h3>
-      <p>平衡的对战体验<br>AI 拥有完整科技<br>战术挑战</p>
-    </div>
-    <div class="mode-card hard" onclick="startGame('hard')">
-      <h3>困难</h3>
-      <p>AI 资源充裕<br>快速扩张+频繁攻击<br>极限战术挑战</p>
+    <div class="mode-card hard" style="opacity:.55;cursor:default">
+      <h3>API 配置</h3>
+      <p>配置成员大脑的 DeepSeek Key<br>M2 里程碑接入<br>当前为脚本 AI</p>
     </div>
   </div>
-  <p class="start-hint">左键选择 &nbsp;·&nbsp; 右键移动/攻击 &nbsp;·&nbsp; 拖拽框选 &nbsp;·&nbsp; Ctrl+数字 编队</p>
+  <p class="start-hint">左键选择 &nbsp;·&nbsp; 右键移动/攻击 &nbsp;·&nbsp; W 切换武器（机枪/火箭筒） &nbsp;·&nbsp; 拖拽框选 &nbsp;·&nbsp; 摧毁对方指挥所</p>
 </div>
 
 <div id="gameOver">
@@ -63,7 +60,11 @@
 </div>
 
 <div id="sidebar">
-  <div id="sidebarHeader">RED ALERT</div>
+  <div id="sidebarHeader">VIRTUAL SANDBOX</div>
+  <div id="memberPanel">
+    <div id="memberPanelHeader">虚拟成员</div>
+    <div id="memberList"></div>
+  </div>
   <div id="buildTabs">
     <div class="build-tab active" data-tab="buildings" onclick="switchTab('buildings')">建筑</div>
     <div class="build-tab" data-tab="units" onclick="switchTab('units')">单位</div>
@@ -111,6 +112,7 @@
     <div class="row"><span class="desc">加选/减选</span><span class="key">Shift+左键</span></div>
     <div class="row"><span class="desc">移动 / 攻击 / 集结</span><span class="key">右键</span></div>
     <div class="row"><span class="desc">停止当前命令</span><span class="key">S</span></div>
+    <div class="row"><span class="desc">切换武器（机枪/火箭筒）</span><span class="key">W</span></div>
     <div class="row"><span class="desc">主动攻击模式</span><span class="key">A</span></div>
     <div class="row"><span class="desc">守卫位置 (Guard)</span><span class="key">G</span></div>
     <div class="row"><span class="desc">全选己方单位</span><span class="key">Ctrl+A</span></div>

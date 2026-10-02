@@ -382,6 +382,41 @@ export function drawUnit(ctx, e, ex, ey2, tc, td, frameCount) {
   }
 
   if (e.type2 === 'infantry') {
+    // 虚拟成员：金色光环 + 名字 + 武器标识，便于在混战中一眼识别
+    if (e.isMember) {
+      var isRocket = e.weaponMode === 'rocket';
+      var mlo = Math.sin(e.animFrame * Math.PI / 2) * 3;
+      ctx.strokeStyle = '#f1c40f';
+      ctx.lineWidth = 1.5;
+      ctx.beginPath(); ctx.ellipse(ux, uy + 7, 9, 4.5, 0, 0, Math.PI * 2); ctx.stroke();
+      // 身体与头部（沿用阵营色）
+      ctx.fillStyle = tc;
+      ctx.fillRect(ux - 4.5, uy - 8, 9, 11);
+      ctx.fillStyle = '#c8a87a';
+      ctx.beginPath(); ctx.arc(ux, uy - 12, 4.5, 0, Math.PI * 2); ctx.fill();
+      ctx.fillStyle = td;
+      ctx.beginPath(); ctx.arc(ux, uy - 13, 5, Math.PI, 0); ctx.fill();
+      // 腿部
+      ctx.fillRect(ux - 3, uy + 3, 3, 6 + mlo);
+      ctx.fillRect(ux, uy + 3, 3, 6 - mlo);
+      // 武器
+      if (isRocket) {
+        ctx.fillStyle = '#888'; ctx.fillRect(ux + 4, uy - 6, 10, 3);
+        ctx.fillStyle = '#c0392b'; ctx.fillRect(ux + 12, uy - 8, 3, 7);
+      } else {
+        ctx.fillStyle = '#333'; ctx.fillRect(ux + 4, uy - 3, 10, 2.5);
+      }
+      // 名字
+      ctx.font = 'bold 9px "Microsoft YaHei", Arial, sans-serif';
+      ctx.textAlign = 'center';
+      ctx.lineWidth = 2.5;
+      ctx.strokeStyle = 'rgba(0,0,0,0.85)';
+      ctx.strokeText(e.memberName || '', ux, uy - 18);
+      ctx.fillStyle = '#f1c40f';
+      ctx.fillText(e.memberName || '', ux, uy - 18);
+      ctx.textAlign = 'left';
+      return;
+    }
     var lo = Math.sin(e.animFrame * Math.PI / 2) * 3;
     ctx.fillStyle = tc;
     ctx.fillRect(ux - 4, uy - 7, 8, 10);
