@@ -20,15 +20,26 @@ function centerOf(e) {
   return { x: Math.floor(e.x + (e.isBuilding ? e.size / 2 : 0.5)), y: Math.floor(e.y + (e.isBuilding ? e.size / 2 : 0.5)) };
 }
 
-/** 最近的本方空闲载具（isMount=true 即无人乘驾） */
+/** 最近的本方空闲载具（isMount=true 即无人乘驾；已被队友预定赶去的不再抢） */
 function nearestFreeMount(gameState, member, maxDist) {
   let best = null, bd = maxDist * maxDist;
   gameState.entities.forEach(function (e) {
     if (e.dead || !e.isMount || e.team !== member.team) return;
+    if (isClaimed(gameState, e, member)) return;
     const d = (e.x - member.x) * (e.x - member.x) + (e.y - member.y) * (e.y - member.y);
     if (d < bd) { bd = d; best = e; }
   });
   return best;
+}
+
+/** 载具是否已被其他成员预定（对方正走向它乘驾） */
+function isClaimed(gameState, mount, member) {
+  for (let i = 0; i < gameState.entities.length; i++) {
+    const other = gameState.entities[i];
+    if (other === member || other.dead || !other.isMember) continue;
+    if (other.boardTarget === mount) return true;
+  }
+  return false;
 }
 
 /**

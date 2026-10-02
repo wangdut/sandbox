@@ -2,7 +2,7 @@ import { TILE_SIZE, MAP_WIDTH, MAP_HEIGHT, GRASS, WATER, ORE, ROCK, CONCRETE, SA
          TEAM_PLAYER, TEAM_ENEMY, COLOR_PLAYER, COLOR_PLAYER_DARK, COLOR_ENEMY, COLOR_ENEMY_DARK,
          COLOR_ALLIED, COLOR_ALLIED_DARK, COLOR_SOVIET, COLOR_SOVIET_DARK, TYPE_AIRCRAFT, TYPE_HELICOPTER, TYPE_AIRSHIP, TEAM_NEUTRAL } from './constants.js';
 import { BUILDING_DEFS, DEFENSE_DEFS, UNIT_DEFS, SUPER_WEAPONS, FACTION_ALLIED, FACTION_SOVIET } from './definitions.js';
-import { drawBuilding as drawBuildingSprite, drawUnit as drawUnitSprite } from './Sprites.js';
+import { drawBuilding as drawBuildingSprite, drawUnit as drawUnitSprite, drawMemberLabel, memberLabelHeight, MEMBER_LABEL_FONT } from './Sprites.js';
 
 // 水纹动画的相位量化档数。原实现每格每帧程序化绘制（1 底色 + 3 波纹 + 2 次 sin），
 // 预渲染为 64 张相位图后每格只需 1 次取模 + 1 次 drawImage。
@@ -250,19 +250,12 @@ export class Renderer {
         ctx.fillText('⚙ 载具', ex + eS / 2, ey2 - 10);
         ctx.textAlign = 'left';
       }
-      // 乘驾中的成员：补金色光环 + 名字（步兵形态已在 Sprites 里画过，这里只处理载具形态）
+      // 乘驾中的成员：补金色光环 + 统一标签（名字在上、血条在下，位于载具上方）
       if (e.isMember && e.mountType) {
         ctx.strokeStyle = '#f1c40f';
         ctx.lineWidth = 1.5;
         ctx.beginPath(); ctx.ellipse(ex + eS / 2, ey2 + eS - 4, 12, 5, 0, 0, Math.PI * 2); ctx.stroke();
-        ctx.font = 'bold 9px "Microsoft YaHei", Arial, sans-serif';
-        ctx.textAlign = 'center';
-        ctx.lineWidth = 2.5;
-        ctx.strokeStyle = 'rgba(0,0,0,0.85)';
-        ctx.strokeText(e.memberName || '', ex + eS / 2, ey2 - 12);
-        ctx.fillStyle = '#f1c40f';
-        ctx.fillText(e.memberName || '', ex + eS / 2, ey2 - 12);
-        ctx.textAlign = 'left';
+        drawMemberLabel(ctx, ex + eS / 2, ey2 - 6 - memberLabelHeight(MEMBER_LABEL_FONT), e.memberName || '', e.hp / e.maxHp, '#f1c40f', MEMBER_LABEL_FONT);
       }
 
       // Selection highlight
@@ -281,8 +274,8 @@ export class Renderer {
         ctx.moveTo(ex + eS + 2 - brSize, ey2 + eS + 2); ctx.lineTo(ex + eS + 2, ey2 + eS + 2); ctx.lineTo(ex + eS + 2, ey2 + eS + 2 - brSize);
         ctx.stroke();
       }
-      // HP bar
-      if (e.hp < e.maxHp && !e.dead) {
+      // HP bar（成员的血条在统一标签里画，这里只处理其他单位/建筑）
+      if (e.hp < e.maxHp && !e.dead && !e.isMember) {
         var bw = eS, bh = 4, bx2 = ex, by2 = ey2 - 7;
         ctx.fillStyle = 'rgba(0,0,0,0.7)'; ctx.fillRect(bx2, by2, bw, bh);
         var r = e.hp / e.maxHp;
@@ -463,7 +456,9 @@ export class Renderer {
         for (var li = 0; li < lines.length; li++) boxW = Math.max(boxW, ctx.measureText(lines[li]).width);
         boxW += 12;
         var boxH = lines.length * lineH + 8;
-        var bx = sp.x - boxW / 2, by = sp.y - 30 - boxH;
+        // 成员头顶有「名字+血条」标签，气泡需再上移，避免压住标签
+        var lift = (sp.entity && sp.entity.isMember) ? memberLabelHeight(MEMBER_LABEL_FONT) + 8 : 0;
+        var bx = sp.x - boxW / 2, by = sp.y - 30 - boxH - lift;
         var alpha = sp.timer > 40 ? 1 : sp.timer / 40;
         ctx.globalAlpha = alpha * 0.9;
         ctx.fillStyle = 'rgba(6, 6, 16, 0.92)';

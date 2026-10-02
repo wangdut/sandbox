@@ -216,6 +216,7 @@ function startGame(side) {
   wireSuperWeaponCallbacks(gameState.superWeaponManager);
   // 调试/测试钩子
   window.__game = gameState;
+  window.__camera = camera;
   window.__input = input;
   window.__ui = ui;
   window.__memberSystem = memberSystem;
@@ -816,6 +817,7 @@ function loadGame() {
   if (ui._callbacks) ui._callbacks.gameState = gameState;
   ui._lastUI = {}; // 重置 DOM 缓存，确保读档后全量刷新一次
   camera = result.camera;
+  window.__camera = camera; // 调试钩子同样要指向读档后的新 camera
   // 关键：读档构造了全新的 GameState / camera，必须让输入层重新绑定，
   // 否则所有鼠标操作仍作用在读档前的旧世界上
   if (input) input.rebind(gameState, camera);

@@ -380,6 +380,42 @@ export function drawBuilding(ctx, e, ex, ey2, eS, tc, td, gameState, frameCount)
   }
 }
 
+export const MEMBER_LABEL_FONT = 13;   // 沙盘内成员名字字号（较旧版 9px 放大约 44%，配合 C3 的 +35% 目标）
+const MEMBER_LABEL_GAP = 4;            // 名字行与血条之间的垂直间隔
+const MEMBER_LABEL_BAR_H = 4;          // 血条高度
+
+/** 成员标签（名字行 + 血条）的总高度，供上层（气泡等）计算避让 */
+export function memberLabelHeight(fontPx) {
+  return (fontPx || MEMBER_LABEL_FONT) + MEMBER_LABEL_GAP + MEMBER_LABEL_BAR_H;
+}
+
+/**
+ * 统一的成员标签：名字在上、血条在下，垂直分布绝不重叠
+ * @param topY 标签块顶边（名字基线 = topY + fontPx）
+ * @returns 标签块总高度
+ */
+export function drawMemberLabel(ctx, cx, topY, name, hpFrac, color, fontPx) {
+  const fp = fontPx || MEMBER_LABEL_FONT;
+  ctx.font = 'bold ' + fp + 'px "Microsoft YaHei", Arial, sans-serif';
+  ctx.textAlign = 'center';
+  ctx.lineWidth = 2.5;
+  ctx.strokeStyle = 'rgba(0,0,0,0.85)';
+  ctx.strokeText(name, cx, topY + fp);
+  ctx.fillStyle = color || '#f1c40f';
+  ctx.fillText(name, cx, topY + fp);
+  const bw = 26, bh = MEMBER_LABEL_BAR_H, bx = cx - bw / 2, by = topY + fp + MEMBER_LABEL_GAP;
+  ctx.fillStyle = 'rgba(0,0,0,0.7)';
+  ctx.fillRect(bx, by, bw, bh);
+  const r = Math.max(0, Math.min(1, hpFrac));
+  ctx.fillStyle = r > 0.6 ? '#2ecc71' : (r > 0.3 ? '#f39c12' : '#e74c3c');
+  ctx.fillRect(bx, by, bw * r, bh);
+  ctx.lineWidth = 1;
+  ctx.strokeStyle = 'rgba(0,0,0,0.6)';
+  ctx.strokeRect(bx + 0.5, by + 0.5, bw - 1, bh - 1);
+  ctx.textAlign = 'left';
+  return memberLabelHeight(fp);
+}
+
 export function drawUnit(ctx, e, ex, ey2, tc, td, frameCount) {
   var ux = ex + TILE_SIZE / 2, uy = ey2 + TILE_SIZE / 2;
   
@@ -420,15 +456,8 @@ export function drawUnit(ctx, e, ex, ey2, tc, td, frameCount) {
       } else {
         ctx.fillStyle = '#333'; ctx.fillRect(ux + 4, uy - 3, 10, 2.5);
       }
-      // 名字
-      ctx.font = 'bold 9px "Microsoft YaHei", Arial, sans-serif';
-      ctx.textAlign = 'center';
-      ctx.lineWidth = 2.5;
-      ctx.strokeStyle = 'rgba(0,0,0,0.85)';
-      ctx.strokeText(e.memberName || '', ux, uy - 18);
-      ctx.fillStyle = '#f1c40f';
-      ctx.fillText(e.memberName || '', ux, uy - 18);
-      ctx.textAlign = 'left';
+      // 名字 + 血条统一标签：上下分布，头部上方，绝不与精灵或气泡重叠
+      drawMemberLabel(ctx, ux, uy - 20 - memberLabelHeight(MEMBER_LABEL_FONT), e.memberName || '', e.hp / e.maxHp, '#f1c40f', MEMBER_LABEL_FONT);
       return;
     }
     var lo = Math.sin(e.animFrame * Math.PI / 2) * 3;
