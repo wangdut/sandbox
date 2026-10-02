@@ -9,7 +9,8 @@ export const DEFAULT_CONFIG = {
   // ---- 接口 ----
   baseUrl: 'https://api.deepseek.com',
   apiKey: '',
-  model: 'deepseek-chat',
+  // 默认用 Flash 版（推理模型，便宜）：务必配合 effort=low 与 max_tokens>=1500
+  model: 'deepseek-flash',
   temperature: 0.8,
   maxTokens: 1500,
   // 推理强度（deepseek-flash 这类推理模型支持 low/high/max；非推理模型可留 none）
