@@ -4,9 +4,10 @@
 //   1. 阵亡后定时在己方指挥所重生（否则一方减员后局面不可逆）
 //   2. 缓慢回血（无医疗建筑时的保底恢复，让「撤退保存实力」有意义）
 //   3. 武器切换（机枪 ↔ 火箭筒）
+//   4. 山顶高地加成（步兵站上 HILL_TOP 获得射程与伤害收益，离开精确回滚）
 // M2 的 AgentManager 会基于本系统提供的注册表下发决策。
 
-import { FPS, TEAM_PLAYER, TEAM_ENEMY } from '../constants.js';
+import { FPS, TEAM_PLAYER, TEAM_ENEMY, HILL_TOP, MAP_WIDTH, MAP_HEIGHT } from '../constants.js';
 import { MEMBERS, DEFAULT_WEAPON, WEAPONS, applyWeapon, dismountVehicle } from './memberDefs.js';
 import { findHQ, findRespawnSpot, mountPads, spawnParkedMount } from './scenario.js';
 
@@ -18,6 +19,8 @@ export const EJECT_INVULN = 120;    // 弹射后的无敌帧（2 秒，够从残
 export const EJECT_COOLDOWN = 300;  // 两次弹射的最小间隔（5 秒，防连续弃车刷保命血）
 export const MOUNT_RESPAWN_SEC = 45;   // 载具损失后在停机坪补车的等待（秒）
 export const MOUNT_CHECK_INTERVAL = FPS; // 车队对账频率：每秒一次
+export const HG_RANGE_BONUS = 2;       // 山顶观察位：射程加成（格）
+export const HG_DAMAGE_MULT = 1.25;    // 山顶观察位：伤害加成（俯射）
 
 export class MemberSystem {
   constructor() {
@@ -75,6 +78,7 @@ export class MemberSystem {
           e.ejectInvuln--;
           if (e.ejectInvuln === 0) e.invulnerable = false;
         }
+        self._applyHighGround(gameState, e);
         return;
       }
       // 实体已阵亡（或从未生成）：进入重生倒计时
@@ -117,6 +121,35 @@ export class MemberSystem {
       const e = spawnParkedMount(gameState, pad.type, team, pad.x, pad.y);
       gameState.addFloatingText(e.getCenterX(), e.getCenterY() - 14, e.name + ' 已就位', '#f1c40f');
     });
+  }
+
+  /**
+   * 高地加成：只有步兵（含刚弃车的成员）能占山顶，载具与飞行器不算。
+   * 差量法——进出格子的瞬间各改一次，数值不重复累加；
+   * 换武器/上下车会整体覆盖 damage/range，那些路径里会把 _hgApplied 清掉，本帧自动重挂。
+   */
+  _applyHighGround(gameState, e) {
+    const map = gameState.map;
+    if (!map) return;
+    const tx = Math.floor(e.x), ty = Math.floor(e.y);
+    let onSummit = false;
+    if (e.type2 === 'infantry' && !e.isAirUnit && ty >= 0 && ty < MAP_HEIGHT && tx >= 0 && tx < MAP_WIDTH) {
+      onSummit = map.terrain[ty][tx] === HILL_TOP;
+    }
+    if (onSummit && !e._hgApplied) {
+      e._hgBaseDamage = e.damage;
+      e.damage = Math.floor(e.damage * HG_DAMAGE_MULT);
+      e.range += HG_RANGE_BONUS;
+      e._hgApplied = true;
+      e.onHighGround = true;
+      gameState.addFloatingText(e.getCenterX(), e.getCenterY() - 14,
+        '占领高地 射程+' + HG_RANGE_BONUS + ' 伤害+' + Math.round((HG_DAMAGE_MULT - 1) * 100) + '%', '#f1c40f');
+    } else if (!onSummit && e._hgApplied) {
+      if (typeof e._hgBaseDamage === 'number') e.damage = e._hgBaseDamage;
+      e.range -= HG_RANGE_BONUS;
+      e._hgApplied = false;
+      e.onHighGround = false;
+    }
   }
 
   _respawn(gameState, slot) {

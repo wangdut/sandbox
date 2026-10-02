@@ -13,7 +13,10 @@ import { buildSystemPrompt, buildSnapshot } from '../src/agents/prompts.js';
 import { DEFAULT_CONFIG, resolveMemberAuth, isAgentEnabled, migrateConfig } from '../src/agents/config.js';
 import { DEFENSE_DEFS, UNIT_DEFS } from '../src/definitions.js';
 import { GameMap } from '../src/GameMap.js';
-import { FPS, TEAM_PLAYER, TEAM_ENEMY, TEAM_NEUTRAL, GRASS, MAP_WIDTH, MAP_HEIGHT } from '../src/constants.js';
+import { GameState } from '../src/GameState.js';
+import { MemberSystem, HG_RANGE_BONUS, HG_DAMAGE_MULT } from '../src/sandbox/memberSystem.js';
+import { buildSandboxScenario, findHQ } from '../src/sandbox/scenario.js';
+import { FPS, TEAM_PLAYER, TEAM_ENEMY, TEAM_NEUTRAL, GRASS, MAP_WIDTH, MAP_HEIGHT, HILL, HILL_TOP, SANDBAG } from '../src/constants.js';
 
 let passed = 0;
 const failures = [];
@@ -268,6 +271,79 @@ dismountVehicle(mountMember);
 eq('载具: 下机恢复步兵', mountMember.mountType, null);
 ok('载具: 下机保留血量比例', mountMember.hp > 0 && mountMember.hp <= 420 && mountMember.type2 === 'infantry');
 eq('防御: 高射机枪阵地对空对地通吃', DEFENSE_DEFS.aaNest.hitsAll, true);
+
+// ==================== 12. 山包与沙袋：地形生成、通行、高地加成 ====================
+const world = new GameState();
+buildSandboxScenario(world, TEAM_PLAYER);
+const wMap = world.map;
+function countTerrain(type) {
+  let n = 0;
+  for (let y = 0; y < MAP_HEIGHT; y++) for (let x = 0; x < MAP_WIDTH; x++) if (wMap.terrain[y][x] === type) n++;
+  return n;
+}
+function countTerrainHalf(type, south) {
+  let n = 0;
+  for (let y = south ? MAP_HEIGHT / 2 : 0; y < (south ? MAP_HEIGHT : MAP_HEIGHT / 2); y++)
+    for (let x = 0; x < MAP_WIDTH; x++) if (wMap.terrain[y][x] === type) n++;
+  return n;
+}
+const nHill = countTerrain(HILL), nTop = countTerrain(HILL_TOP), nBag = countTerrain(SANDBAG);
+ok('地形: 山包连绵（' + nHill + ' 格坡地）', nHill >= 20);
+ok('地形: 每座山有可站的平顶（' + nTop + ' 格山顶）', nTop >= 6);
+ok('地形: 沙袋阵地成建制（' + nBag + ' 格）', nBag >= 8);
+ok('地形: 战术位南北对等（坡 ' + countTerrainHalf(HILL, false) + '/' + countTerrainHalf(HILL, true) +
+  '，顶 ' + countTerrainHalf(HILL_TOP, false) + '/' + countTerrainHalf(HILL_TOP, true) +
+  '，沙袋 ' + countTerrainHalf(SANDBAG, false) + '/' + countTerrainHalf(SANDBAG, true) + '）',
+  countTerrainHalf(HILL, false) === countTerrainHalf(HILL, true) &&
+  countTerrainHalf(HILL_TOP, false) === countTerrainHalf(HILL_TOP, true) &&
+  countTerrainHalf(SANDBAG, false) === countTerrainHalf(SANDBAG, true));
+
+let summit = null, post = null, flat = null;
+for (let y = 0; y < MAP_HEIGHT && !summit; y++)
+  for (let x = 0; x < MAP_WIDTH; x++) if (wMap.terrain[y][x] === HILL_TOP) { summit = { x, y }; break; }
+for (let y = 0; y < MAP_HEIGHT && !post; y++)
+  for (let x = 0; x < MAP_WIDTH; x++) if (wMap.terrain[y][x] === SANDBAG) { post = { x, y }; break; }
+for (let y = 0; y < MAP_HEIGHT && !flat; y++)
+  for (let x = 0; x < MAP_WIDTH; x++) if (wMap.terrain[y][x] === GRASS) { flat = { x, y }; break; }
+const foot = { team: TEAM_PLAYER, type2: 'infantry' };
+const car = { team: TEAM_PLAYER, type2: 'vehicle' };
+ok('地形: 步兵能爬上山顶', wMap.isPassableForUnit(summit.x, summit.y, foot) === true);
+ok('地形: 步兵能进沙袋阵地', wMap.isPassableForUnit(post.x, post.y, foot) === true);
+ok('地形: 车辆开不上山包', wMap.isPassableForUnit(summit.x, summit.y, car) === false);
+ok('地形: 车辆开不进沙袋', wMap.isPassableForUnit(post.x, post.y, car) === false);
+
+const msys = new MemberSystem();
+msys.init(world);
+const scout = msys.liveMembers(world).find(function (e) { return e.team === TEAM_PLAYER; });
+scout.x = summit.x; scout.y = summit.y;
+const baseDmg = scout.damage, baseRange = scout.range;
+msys.update(world, 1);
+ok('高地: 站上山顶伤害 ×' + HG_DAMAGE_MULT + '（' + baseDmg + '→' + scout.damage + '）',
+  scout.damage === Math.floor(baseDmg * HG_DAMAGE_MULT) && scout.onHighGround === true);
+eq('高地: 站上山顶射程 +' + HG_RANGE_BONUS, scout.range, baseRange + HG_RANGE_BONUS);
+scout.x = flat.x; scout.y = flat.y;   // 走下山包
+msys.update(world, 1);
+ok('高地: 离开山顶精确回滚（' + scout.damage + '/' + scout.range + '）',
+  scout.damage === baseDmg && scout.range === baseRange && scout.onHighGround === false);
+
+// 站在山顶换武器：数值被整体覆盖后，加成必须重新挂在新数值上而不是叠加/错位
+scout.x = summit.x; scout.y = summit.y;
+msys.update(world, 1);
+applyWeapon(scout, scout.weaponMode === 'mg' ? 'rocket' : 'mg');
+const wDmg = scout.damage, wRange = scout.range;
+msys.update(world, 1);
+ok('高地: 换武器后加成重挂而不串味（' + wDmg + '→' + scout.damage + '）',
+  scout.damage === Math.floor(wDmg * HG_DAMAGE_MULT) && scout.range === wRange + HG_RANGE_BONUS);
+
+const snapCtx = {
+  spec: MEMBERS[0], board: { ownHq: findHQ(world, TEAM_PLAYER), enemyHq: findHQ(world, TEAM_ENEMY) },
+  events: [], allyMsgs: [], enemyMsgs: [], lastCommand: null, currentAction: null,
+};
+const reliefSnap = JSON.parse(buildSnapshot(world, scout, snapCtx));
+ok('高地: 快照报出脚下地形与生效中的加成', reliefSnap['地形'].脚下 === '山顶' &&
+  /\+2/.test(reliefSnap['地形'].高地状态 || ''));
+ok('高地: 快照给出最近战术位坐标', !!reliefSnap['地形'].最近山顶 && !!reliefSnap['地形'].最近沙袋);
+ok('地形: 系统提示讲清山顶与沙袋的用法', buildSystemPrompt(MEMBERS[0]).indexOf('【高地与掩体】') >= 0);
 
 // ==================== 汇总 ====================
 console.log('\n通过 ' + passed + ' 项' + (failures.length ? '，失败 ' + failures.length + ' 项：' : '，全部通过 ✅'));

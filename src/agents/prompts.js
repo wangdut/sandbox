@@ -5,8 +5,9 @@
 //   2. 快照只放决策必需的字段，并用中文短键，压缩 prompt 体积
 //   3. 明确给出「可选目标」及其 id，禁止模型自行编造坐标/id
 
-import { TEAM_NAMES, TEAM_PLAYER } from '../constants.js';
+import { TEAM_NAMES, TEAM_PLAYER, MAP_WIDTH, MAP_HEIGHT, HILL_TOP, SANDBAG } from '../constants.js';
 import { WEAPONS } from '../sandbox/memberDefs.js';
+import { HG_RANGE_BONUS, HG_DAMAGE_MULT } from '../sandbox/memberSystem.js';
 import { UNIT_DEFS } from '../definitions.js';
 import { isAIAutoTargetable } from './targeting.js';
 
@@ -26,6 +27,7 @@ export function buildSystemPrompt(spec, humanTeam) {
     '【目标】与队友配合，摧毁敌方「指挥所」；同时保护己方指挥所。',
     '【武器】机枪：射速快、专杀步兵，对建筑几乎无效；火箭筒：拆建筑/破装甲，射速慢。可用"武器"字段请求切换。',
     '【地形】地图 64×64。敌方指挥所旁有碉堡与重炮塔：进入其射程会被持续压制，从防御薄弱的方位（如基地背面）进攻更明智。系统寻路已会自动绕开防御射程。',
+    '【高地与掩体】地图上有山包和沙袋阵地（见"地形"字段给出的最近坐标）。山顶是步兵专属战术位：站上去射程与伤害都有加成，适合伏击与观察报点；沙袋阵地能实实在在降低你受到的伤害，挨打时躲进去比硬站开阔地活得久。车辆和飞行器都上不了山包与沙袋，乘载具时要主动让开这些地形给队友。想占位就用动作 move 走向那个坐标（或 attack_move 顺路交战），站上去后加成自动生效。',
     '【生存】血量低于一半就应脱离战斗、撤回己方指挥所回血；别和碉堡/炮塔硬刚，它们火力强、拆得慢——用火箭筒远程点掉或干脆绕开。',
     '【目标选择】优先摧毁敌方「指挥所」或击杀敌方成员；攻击"防御工事"收益低，除非它正好挡在必经之路。',
     '【楼房】地图上的中立「高楼大厦」是障碍物兼掩体：它不可通行，会截断双方的子弹与炮弹。看到"掩体"列表里的楼，要贴着它、绕到它背向来敌的一侧来躲火力；绝不要主动攻击它——拆楼既浪费火力又暴露位置，只有指挥官明确下令时才动手。',
@@ -70,6 +72,52 @@ function kindOf(e) {
   }
   if (e.mountType) return '载具';
   return '单位';
+}
+
+const TERRAIN_NAMES = ['草地', '水域', '矿石', '岩石', '混凝土', '沙地', '树林', '山包坡地', '山顶', '沙袋阵地'];
+
+// 地形在地图生成后不再变化，战术格按 map 对象记忆化一次即可，避免每次快照扫 4096 格
+const reliefMemo = new WeakMap();
+function reliefTiles(map) {
+  let r = reliefMemo.get(map);
+  if (r) return r;
+  r = { summits: [], posts: [] };
+  for (let y = 0; y < MAP_HEIGHT; y++) {
+    for (let x = 0; x < MAP_WIDTH; x++) {
+      const t = map.terrain[y][x];
+      if (t === HILL_TOP) r.summits.push({ x: x, y: y });
+      else if (t === SANDBAG) r.posts.push({ x: x, y: y });
+    }
+  }
+  reliefMemo.set(map, r);
+  return r;
+}
+
+function nearestRelief(from, list) {
+  let best = null, bd = Infinity;
+  for (let i = 0; i < list.length; i++) {
+    const dx = list[i].x + 0.5 - (from.x + 0.5), dy = list[i].y + 0.5 - (from.y + 0.5);
+    const d = Math.sqrt(dx * dx + dy * dy);
+    if (d < bd) { bd = d; best = list[i]; }
+  }
+  if (!best || bd > 30) return null;
+  return { 位置: [best.x, best.y], 距离: Math.round(bd * 10) / 10 };
+}
+
+/** 脚下地形与可用战术位（山顶观察/伏击位、沙袋阵地） */
+function terrainInfo(gameState, member) {
+  const map = gameState.map;
+  if (!map) return null;
+  const tx = Math.floor(member.x), ty = Math.floor(member.y);
+  const rel = reliefTiles(map);
+  return {
+    脚下: TERRAIN_NAMES[map.terrain[ty] && map.terrain[ty][tx]] || '草地',
+    高地状态: member.onHighGround
+      ? '已站上山顶：射程+' + HG_RANGE_BONUS + '、伤害+' + Math.round((HG_DAMAGE_MULT - 1) * 100) + '%，适合伏击与观察'
+      : null,
+    最近山顶: nearestRelief(member, rel.summits),
+    最近沙袋: nearestRelief(member, rel.posts),
+  };
 }
 
 /**
@@ -158,6 +206,7 @@ export function buildSnapshot(gameState, member, ctx) {
     可选目标: enemies,
     可用载具: mounts,
     掩体: covers,
+    地形: terrainInfo(gameState, member),
     队友: mates,
     最近事件: ctx.events.slice(-4),
     队友消息: ctx.allyMsgs.slice(-3),

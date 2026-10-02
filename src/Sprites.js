@@ -906,8 +906,8 @@ function _rivet(g, x, y) {
   g.fillStyle = 'rgba(255,255,255,.28)'; g.fillRect(x - 0.6, y - 0.6, 1.3, 1.3);
   g.fillStyle = 'rgba(0,0,0,.45)'; g.fillRect(x, y, 1.1, 1.1);
 }
-/** 沙袋墙：一排交错椭圆 */
-function _sandbags(g, x0, x1, y, rows) {
+/** 沙袋墙：一排交错椭圆（导出的原因：地形格「沙袋阵地」也复用同一套画法，见 Renderer） */
+export function drawSandbagWall(g, x0, x1, y, rows) {
   for (var r = 0; r < rows; r++) {
     var yy = y + r * 3.4, off = (r % 2) * 3;
     for (var x = x0 + off; x < x1 - 2; x += 6.2) {
@@ -1282,8 +1282,8 @@ function _paintBase(g, tc, td, S) {
   g.fillStyle = tc; g.fillRect(dx - 2, dy - 4, S * 0.18 + 4, 4);
   for (var s = 0; s < 4; s++) { g.fillStyle = s % 2 ? '#f1c40f' : '#1c1c22'; g.fillRect(dx - 4 + s * 4, dy + 13, 3.4, 3); }
   // 沙袋环 + 拒马
-  _sandbags(g, S * 0.04, S * 0.34, S - 6, 2);
-  _sandbags(g, S * 0.6, S * 0.98, S - 6, 2);
+  drawSandbagWall(g, S * 0.04, S * 0.34, S - 6, 2);
+  drawSandbagWall(g, S * 0.6, S * 0.98, S - 6, 2);
   // 阵营徽标
   _dot(g, S * 0.2, my + mh * 0.26, 5.5, tc, 'rgba(255,255,255,.5)');
   g.fillStyle = 'rgba(255,255,255,.85)'; g.fillRect(S * 0.2 - 1.4, my + mh * 0.26 - 3.4, 2.8, 6.8);
@@ -1299,7 +1299,7 @@ function _paintPillbox(g, tc, td, S) {
   g.beginPath(); g.moveTo(4, S * 0.52); g.lineTo(S - 4, S * 0.52); g.stroke();
   g.fillStyle = '#0d0f13'; _rr(g, S * 0.3, S * 0.56, S * 0.4, 7, 2); g.fill();
   g.fillStyle = '#22262c'; g.fillRect(S * 0.44, S * 0.6, 3.2, 9); g.fillRect(S * 0.52, S * 0.6, 3.2, 9);
-  _sandbags(g, 2, S - 10, S - 4, 1);
+  drawSandbagWall(g, 2, S - 10, S - 4, 1);
   g.fillStyle = '#3a4047'; g.fillRect(S * 0.16, 4, 4, 8);
   g.fillStyle = '#2b3037'; g.fillRect(S * 0.14, 2, 8, 3);
   _plate(g, S * 0.6, 6, 14, 9, 1.6, _sh(td, 0.05), _sh(td, -0.4), 1);
@@ -1312,7 +1312,7 @@ function _paintTurretPad(g, tc, td, S) {
     _lg(g, 0, 4, 0, S, '#757b84', '#2f343b'), 'rgba(0,0,0,.6)');
   g.strokeStyle = 'rgba(0,0,0,.3)'; g.lineWidth = 1;
   g.beginPath(); g.arc(S / 2, S / 2, S * 0.28, 0, Math.PI * 2); g.stroke();
-  _sandbags(g, 4, S - 12, S - 5, 1);
+  drawSandbagWall(g, 4, S - 12, S - 5, 1);
   for (var i = 0; i < 4; i++) { g.fillStyle = i % 2 ? '#f1c40f' : '#1c1c22'; g.fillRect(S * 0.28 + i * 5, 6, 4.2, 3); }
   g.fillStyle = tc; g.fillRect(S * 0.5 - 8, S * 0.5 - 1, 16, 2);
 }
@@ -1322,7 +1322,7 @@ function _paintAaNest(g, tc, td, S) {
   g.strokeStyle = 'rgba(0,0,0,.3)'; g.lineWidth = 1;
   for (var i = 1; i < 3; i++) { g.beginPath(); g.moveTo(3, 6 + (S - 10) * i / 3); g.lineTo(S - 3, 6 + (S - 10) * i / 3); g.stroke(); }
   _rivet(g, 7, 10); _rivet(g, S - 9, 10); _rivet(g, 7, S - 8); _rivet(g, S - 9, S - 8);
-  _sandbags(g, 1, S - 9, S - 4, 2);
+  drawSandbagWall(g, 1, S - 9, S - 4, 2);
   _plate(g, S * 0.62, S * 0.16, 14, 10, 1.6, '#7a6a45', '#3b3324', 1);
   g.strokeStyle = 'rgba(0,0,0,.5)'; g.beginPath(); g.moveTo(S * 0.62 + 7, S * 0.16); g.lineTo(S * 0.62 + 7, S * 0.16 + 10); g.stroke();
   g.fillStyle = tc; g.fillRect(S * 0.14, S * 0.2, 10, 2.6);

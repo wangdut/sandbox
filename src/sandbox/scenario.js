@@ -5,6 +5,7 @@
 
 import {
   MAP_WIDTH, MAP_HEIGHT, TILE_SIZE, GRASS, CONCRETE, SAND, TREE, ROCK, WATER,
+  HILL, HILL_TOP, SANDBAG,
   TEAM_PLAYER, TEAM_ENEMY, TEAM_NEUTRAL, FACTION_ALLIED, FACTION_SOVIET,
 } from '../constants.js';
 import { MEMBERS, createMember } from './memberDefs.js';
@@ -39,7 +40,7 @@ const ROCK_CLUMPS = [
 ];
 // 沙地（占位视觉，不改变通行性）
 const SAND_CLUMPS = [
-  { x: 10, y: 16 }, { x: 21, y: 33 }, { x: 3, y: 46 }, { x: 30, y: 28 },
+  { x: 7, y: 12 }, { x: 21, y: 33 }, { x: 3, y: 46 }, { x: 30, y: 28 },
 ];
 
 // 河流：横贯中部的不可通行水域，只在三座桥上可渡河（形成咽喉要道）
@@ -53,6 +54,22 @@ const BRIDGES = [
 // 中立高楼大厦（蓝方侧定义，红方镜像）：可摧毁的掩体/遮挡物
 const HIGH_RISES = [
   { x: 24, y: 17 }, { x: 40, y: 21 }, { x: 17, y: 38 },
+];
+
+// 山包（蓝方侧定义，红方镜像）：外圈为坡地 HILL，核心平台为山顶 HILL_TOP。
+// 山顶是步兵专属的伏击位（车辆爬不上），所以刻意选在俯瞰渡口与主路、但离基地前沿不远的地方。
+// 注意：河面占 27~31 行，其中心对称行 32~36 同样落不了地，山包与沙袋都要避开 27~36。
+const HILLS = [
+  { x: 12, y: 20, r: 3 },   // 俯瞰西渡口与红方半区
+  { x: 29, y: 21, r: 3 },   // 紧贴中部宽桥北侧，压制过桥队伍
+  { x: 9, y: 41, r: 3 },    // 蓝方西岸山头（镜像后成为红方东岸山头）
+];
+
+// 沙袋阵地（蓝方侧定义，红方镜像）：w×h 的沙袋带，步兵站进去受击按比例减伤
+const SANDBAG_POSTS = [
+  { x: 26, y: 25, w: 6, h: 2 },  // 中部宽桥西侧桥头堡，掩护渡河展开
+  { x: 42, y: 37, w: 2, h: 5 },  // 东岸田埂上的纵向掩体，封锁东侧开阔地
+  { x: 9, y: 44, w: 5, h: 2 },   // 蓝方基地前沿的最后一道沙袋线
 ];
 
 // 中心对称：size 为建筑占地边长（1 表示单格）
@@ -96,6 +113,61 @@ function decorate(map) {
   mirrored(TREE_CLUMPS).forEach(function (c) { stampClump(map, c, TREE, 1); });
   mirrored(ROCK_CLUMPS).forEach(function (c) { stampClump(map, c, ROCK, 1); });
   mirrored(SAND_CLUMPS).forEach(function (c) { stampClump(map, c, SAND, 2); });
+}
+
+/** 矩形/圆斑布景的中心对称格：180° 旋转后朝向自然翻转 */
+function mirrorTile(p) {
+  return { x: MAP_WIDTH - 1 - p.x, y: MAP_HEIGHT - 1 - p.y };
+}
+
+function inBounds(map, p) {
+  return p.x >= 0 && p.x < MAP_WIDTH && p.y >= 0 && p.y < MAP_HEIGHT;
+}
+
+/**
+ * 对称落格：本格与其中心对称格「都是草地」才写入。
+ * 只判断单侧会让红蓝地形不等价——例如沙袋带跨到河面上时，蓝方留 10 格、红方只剩 2 格。
+ */
+function stampPair(map, a, kind) {
+  const b = mirrorTile(a);
+  if (!inBounds(map, a) || !inBounds(map, b)) return false;
+  if (map.terrain[a.y][a.x] !== GRASS || map.terrain[b.y][b.x] !== GRASS) return false;
+  map.terrain[a.y][a.x] = kind;
+  map.terrain[b.y][b.x] = kind;
+  return true;
+}
+
+/** 山包：欧氏半径内分层——核心是平顶 HILL_TOP，外圈是坡地 HILL */
+function stampHill(map, center, r) {
+  // 平顶固定 3×3：半径再小的山也要给侦察兵一块站得住的台面，
+  // 若随 r 收缩，r=2 的山只会剩下十字形 5 格，看着像个加号而不是山头。
+  const topR = 1.5;
+  let landed = 0;
+  for (let dy = -r; dy <= r; dy++) {
+    for (let dx = -r; dx <= r; dx++) {
+      const d2 = dx * dx + dy * dy;
+      if (d2 > r * r) continue;
+      if (stampPair(map, { x: center.x + dx, y: center.y + dy }, d2 <= topR * topR ? HILL_TOP : HILL)) landed++;
+    }
+  }
+  return landed * 2;   // 每对落两格，返回两侧合计
+}
+
+/** 沙袋工事带：w×h 矩形 */
+function stampSandbag(map, p) {
+  let landed = 0;
+  for (let dy = 0; dy < p.h; dy++) {
+    for (let dx = 0; dx < p.w; dx++) {
+      if (stampPair(map, { x: p.x + dx, y: p.y + dy }, SANDBAG)) landed++;
+    }
+  }
+  return landed * 2;
+}
+
+/** 起伏与工事：山包 + 沙袋阵地，逐格中心对称落位，双方地形资源完全等价 */
+function stampRelief(map) {
+  HILLS.forEach(function (h) { stampHill(map, h, h.r); });
+  SANDBAG_POSTS.forEach(function (p) { stampSandbag(map, p); });
 }
 
 /** 横贯中部的河流 + 三座桥（桥是混凝土，可通行） */
@@ -226,6 +298,7 @@ export function buildSandboxScenario(gameState, humanTeam) {
   drawRiver(map);
   drawRoad(map);
   decorate(map);
+  stampRelief(map);   // 山包与沙袋阵地：只覆盖草地，故不会截断桥面与主路
   spawnNeutralBuildings(gameState);
 
   gameState.playerFaction = FACTION_ALLIED;

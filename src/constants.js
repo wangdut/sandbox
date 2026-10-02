@@ -5,9 +5,12 @@ export const MAP_HEIGHT = 64;
 // 每秒帧数。冷却/建造/生产计时一律按帧存放（timer++），
 // 所以凡是「秒」的定义都必须 × FPS 换算，否则会差 60 倍。
 export const FPS = 60;
-export const GRASS = 0, WATER = 1, ORE = 2, ROCK = 3, CONCRETE = 4, SAND = 5, TREE = 6;
+// HILL/HILL_TOP：山包的坡与顶（步兵可登顶获得射程/伤害加成，车辆爬不上）
+// SANDBAG：沙袋阵地（步兵可进入，受击按比例减伤）
+export const GRASS = 0, WATER = 1, ORE = 2, ROCK = 3, CONCRETE = 4, SAND = 5, TREE = 6,
+  HILL = 7, HILL_TOP = 8, SANDBAG = 9;
 export const TEAM_PLAYER = 0, TEAM_ENEMY = 1;
-export const TEAM_NEUTRAL = 2; // 中立单位/建筑（高楼大厦等，双方都可攻击）
+export const TEAM_NEUTRAL = 2; // 中立建筑（高楼）：挡路又挡弹的掩体，AI 不主动攻击，仅接受玩家下令拆除
 
 // 阵营颜色
 export const COLOR_ALLIED = '#4a9fd4', COLOR_ALLIED_DARK = '#1a5276';

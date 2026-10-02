@@ -19,6 +19,8 @@ const PERSISTED_FIELDS = [
   'isAirUnit', 'armorType', 'damageType', 'avoidDanger',
   // 高楼的行为标记：漏掉会让读档后 AI 重新把中立高楼当自动目标、并失去弹道遮挡
   'aiIgnore', 'blocksFire',
+  // 高地加成账本：damage/range 存的是加成后的值，缺了这两项读档后会二次叠加或永不回滚
+  '_hgApplied', '_hgBaseDamage', 'onHighGround',
   'ejectCooldown', 'ejectInvuln'
 ];
 // {x, y} 坐标点字段

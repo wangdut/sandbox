@@ -1,8 +1,9 @@
 import { TILE_SIZE, MAP_WIDTH, MAP_HEIGHT, GRASS, WATER, ORE, ROCK, CONCRETE, SAND, TREE,
+         HILL, HILL_TOP, SANDBAG,
          TEAM_PLAYER, TEAM_ENEMY, COLOR_PLAYER, COLOR_PLAYER_DARK, COLOR_ENEMY, COLOR_ENEMY_DARK,
          COLOR_ALLIED, COLOR_ALLIED_DARK, COLOR_SOVIET, COLOR_SOVIET_DARK, TYPE_AIRCRAFT, TYPE_HELICOPTER, TYPE_AIRSHIP, TEAM_NEUTRAL } from './constants.js';
 import { BUILDING_DEFS, DEFENSE_DEFS, UNIT_DEFS, SUPER_WEAPONS, FACTION_ALLIED, FACTION_SOVIET } from './definitions.js';
-import { drawBuilding as drawBuildingSprite, drawUnit as drawUnitSprite, drawMemberLabel, memberLabelHeight, MEMBER_LABEL_FONT } from './Sprites.js';
+import { drawBuilding as drawBuildingSprite, drawUnit as drawUnitSprite, drawMemberLabel, memberLabelHeight, MEMBER_LABEL_FONT, drawSandbagWall } from './Sprites.js';
 
 // 画布内文字字号：按用户反馈整体放大约 35%（气泡 10→13.5、飘字 12→16）
 export const SPEECH_FONT = 13.5;
@@ -22,6 +23,7 @@ export class Renderer {
     this.canvas = canvas;
     this.minimapCanvas = minimapCanvas;
     this.tileCache = [];
+    this.reliefCache = [];  // [type][variant*16 + 邻居掩码] → 山包/沙袋格（掩码保证山脊与沙袋墙跨格连续）
     this.waterCache = [];   // [phaseIdx] → 预渲染水格（含波纹）
     this.oreCache = [];     // [crystals][variant] → 预渲染晶体层（透明底，alpha 由 globalAlpha 控制）
     this.minimapTerrainCanvas = null;
@@ -53,7 +55,204 @@ export class Renderer {
   }
 
   /**
-   * 预渲染水格：把波纹动画按相位量化成 WATER_PHASES 张图。
+   * 邻格位掩码：bit0~3 = 同族四邻（N=1 E=2 S=4 W=8），bit4~7 = 该侧是否为山顶（N=16 E=32 S=64 W=128）
+   * 坡与顶算作同一个山体，这样山脊跨格时阴影与等高线能连起来；沙袋只认同族。
+   */
+  _reliefMask(map, tx, ty, type) {
+    var at = function (x, y) {
+      if (x < 0 || y < 0 || x >= MAP_WIDTH || y >= MAP_HEIGHT) return -1;
+      return map.terrain[y][x];
+    };
+    var same = function (x, y) {
+      var t = at(x, y);
+      if (type === SANDBAG) return t === SANDBAG;
+      return t === HILL || t === HILL_TOP;
+    };
+    var fam = (same(tx, ty - 1) ? 1 : 0) | (same(tx + 1, ty) ? 2 : 0) |
+              (same(tx, ty + 1) ? 4 : 0) | (same(tx - 1, ty) ? 8 : 0);
+    if (type === SANDBAG) return fam;
+    // 坡地需要知道"哪侧是更高的平顶"（画受光棱），平顶需要知道"哪侧不再是平顶"（画崖口）
+    return fam | (at(tx, ty - 1) === HILL_TOP ? 16 : 0) | (at(tx + 1, ty) === HILL_TOP ? 32 : 0) |
+               (at(tx, ty + 1) === HILL_TOP ? 64 : 0) | (at(tx - 1, ty) === HILL_TOP ? 128 : 0);
+  }
+
+  _getReliefCanvas(type, variant, mask) {
+    var byType = this.reliefCache[type];
+    if (!byType) byType = this.reliefCache[type] = [];
+    var idx = variant * 256 + mask;
+    var cached = byType[idx];
+    if (cached) return cached;
+    var tc = document.createElement('canvas');
+    tc.width = TILE_SIZE; tc.height = TILE_SIZE;
+    this._drawReliefTile(tc.getContext('2d'), type, variant, mask);
+    byType[idx] = tc;
+    return tc;
+  }
+
+  /** 山包 / 山顶 / 沙袋阵地格 */
+  _drawReliefTile(g, type, variant, mask) {
+    var S = TILE_SIZE, h = S / 2;
+    var hasN = mask & 1, hasE = mask & 2, hasS = mask & 4, hasW = mask & 8;
+
+    if (type === SANDBAG) {
+      // 踩实的沙土地面 + 深浅沙纹
+      var sc = ['#9c8551', '#a38b57', '#947e4b', '#a89462'];
+      g.fillStyle = sc[variant]; g.fillRect(0, 0, S, S);
+      g.fillStyle = 'rgba(70,55,28,0.22)';
+      g.fillRect(3 + variant * 3, 12, 11, 2);
+      g.fillRect(15 - (variant % 2) * 4, 22, 10, 2);
+      g.fillStyle = 'rgba(228,205,150,0.16)';
+      g.fillRect(4, 7 + variant, 8, 1);
+      // 沙袋墙只砌在阵地外缘（内侧相邻仍是沙袋时不砌，否则阵地内部会被墙填满）
+      // 墙根先压一道投影：没有接地阴影时整袋墙像是浮在沙地上的一块贴图。
+      // dir 指向阵地内部，投影永远落在墙的内侧脚下。
+      function wallH(y, dir) {
+        g.fillStyle = 'rgba(44,35,16,0.30)';
+        g.fillRect(0, dir > 0 ? y + 6.6 : y - 2.6, S, 2.6);
+        drawSandbagWall(g, 0, S, y, 2);
+      }
+      function wallV(x, dir) {
+        g.fillStyle = 'rgba(44,35,16,0.30)';
+        g.fillRect(dir > 0 ? x + 6.6 : x - 2.6, 0, 2.6, S);
+        drawSandbagWall(g, 0, S, x, 2);
+      }
+      if (!hasN) wallH(4, 1);
+      if (!hasS) wallH(S - 3, -1);
+      if (!hasW || !hasE) {
+        g.save();
+        g.translate(h, h); g.rotate(Math.PI / 2); g.translate(-h, -h);
+        if (!hasE) wallV(4, 1);   // 旋转后这一条落在东侧
+        if (!hasW) wallV(S - 3, -1);
+        g.restore();
+      }
+      return;
+    }
+
+    var isTop = type === HILL_TOP;
+    var flat = (mask & 15) === 15;
+    // 抬升方向：同族邻居所在侧更高，没有同族的一侧是下坡
+    var ux = (hasW ? 1 : 0) - (hasE ? 1 : 0);
+    var uy = (hasN ? 1 : 0) - (hasS ? 1 : 0);
+    if (!ux && !uy) uy = -1;
+
+    // 单一底色：山体是一整块连续表面，不能再叠草地那种棋盘格明暗。
+    // 平顶刻意偏暖（岩石地形是冷蓝灰），否则山头看起来像一块水泥地坪。
+    g.fillStyle = isTop ? '#7b7461' : '#3d6a27';
+    g.fillRect(0, 0, S, S);
+
+    if (!flat) {
+      // 坡面光照：上坡侧受光、下坡侧落影
+      var grd = g.createLinearGradient(h - ux * h, h - uy * h, h + ux * h, h + uy * h);
+      if (isTop) {
+        grd.addColorStop(0, 'rgba(228,236,206,0.20)');
+        grd.addColorStop(0.6, 'rgba(255,255,255,0.03)');
+        grd.addColorStop(1, 'rgba(24,30,20,0.22)');
+      } else {
+        grd.addColorStop(0, 'rgba(198,226,152,0.17)');
+        grd.addColorStop(0.55, 'rgba(255,255,255,0.02)');
+        grd.addColorStop(1, 'rgba(8,24,4,0.34)');
+      }
+      g.fillStyle = grd; g.fillRect(0, 0, S, S);
+      // 等高线：垂直于抬升方向的两道棱，暗棱下方配一条细高光才有凸起感
+      var px = -uy, py = ux;
+      for (var ci = 0; ci < 2; ci++) {
+        var off = (ci - 0.5) * 11;
+        var cx0 = h + ux * off, cy0 = h + uy * off;
+        g.strokeStyle = isTop ? 'rgba(28,34,24,0.34)' : 'rgba(16,40,8,0.34)';
+        g.lineWidth = 1.4;
+        g.beginPath(); g.moveTo(cx0 - px * 22, cy0 - py * 22); g.lineTo(cx0 + px * 22, cy0 + py * 22); g.stroke();
+        g.strokeStyle = isTop ? 'rgba(232,240,214,0.16)' : 'rgba(184,216,140,0.20)';
+        g.lineWidth = 1;
+        g.beginPath();
+        g.moveTo(cx0 - px * 22 + ux * 1.6, cy0 - py * 22 + uy * 1.6);
+        g.lineTo(cx0 + px * 22 + ux * 1.6, cy0 + py * 22 + uy * 1.6);
+        g.stroke();
+      }
+    }
+
+    // 露头岩：顶面受光 + 侧面落影，位置随 variant 固定以保证同一格每帧一致
+    var rockSide = isTop ? '#5b5545' : '#4a5240';
+    var rockTop = isTop ? '#b0a892' : '#8d9680';
+    var nRocks = isTop ? 3 : 2;
+    for (var ri = 0; ri < nRocks; ri++) {
+      var rx = 7 + ((ri * 11 + variant * 7) % 19);
+      var ry = 8 + ((ri * 13 + variant * 5) % 17);
+      var rw = (isTop ? 4.6 : 3.2) + ((ri + variant) % 2) * 1.2;
+      var rh = rw * 0.6;
+      g.fillStyle = rockSide;
+      g.beginPath();
+      g.moveTo(rx - rw, ry); g.lineTo(rx - rw * 0.35, ry - rh); g.lineTo(rx + rw * 0.8, ry - rh * 0.45);
+      g.lineTo(rx + rw, ry + rh * 0.45); g.lineTo(rx - rw * 0.2, ry + rh);
+      g.closePath(); g.fill();
+      g.fillStyle = rockTop;
+      g.beginPath();
+      g.moveTo(rx - rw * 0.9, ry - rh * 0.18); g.lineTo(rx - rw * 0.3, ry - rh * 0.95);
+      g.lineTo(rx + rw * 0.72, ry - rh * 0.45); g.lineTo(rx + rw * 0.08, ry - rh * 0.05);
+      g.closePath(); g.fill();
+    }
+    if (!isTop) {
+      g.strokeStyle = 'rgba(126,186,92,0.5)'; g.lineWidth = 1;
+      g.beginPath(); g.moveTo(24 - variant * 3, 26); g.lineTo(25 - variant * 3, 21); g.stroke();
+      g.beginPath(); g.moveTo(27 - variant * 3, 26); g.lineTo(28 - variant * 3, 22); g.stroke();
+    } else {
+      // 台面自身要有裂纹与碎石：中央格四周都是平顶、拿不到坡向光照，
+      // 不补细节就会在山顶正中间留一块死灰的方斑。
+      var kx = 4 + variant * 5, ky = 8 + (variant % 2) * 9;
+      g.strokeStyle = 'rgba(44,42,32,0.42)'; g.lineWidth = 1.1;
+      g.beginPath();
+      g.moveTo(kx, ky); g.lineTo(kx + 7, ky + 3); g.lineTo(kx + 13, ky - 1);
+      g.stroke();
+      g.strokeStyle = 'rgba(216,209,183,0.22)'; g.lineWidth = 1;
+      g.beginPath();
+      g.moveTo(kx, ky + 1.4); g.lineTo(kx + 7, ky + 4.4); g.lineTo(kx + 13, ky + 0.4);
+      g.stroke();
+      for (var gi = 0; gi < 6; gi++) {
+        var gx = 5 + ((gi * 9 + variant * 6) % 23);
+        var gy = 5 + ((gi * 7 + variant * 11) % 23);
+        g.fillStyle = 'rgba(84,80,66,0.5)';
+        g.beginPath(); g.arc(gx, gy, 1.3 + (gi % 3) * 0.5, 0, Math.PI * 2); g.fill();
+        g.fillStyle = 'rgba(206,199,174,0.4)';
+        g.fillRect(gx - 0.9, gy - 1.4, 1.5, 0.9);
+      }
+    }
+
+    // 边缘处理：山脚接触影 / 坡面接入平顶的受光棱 / 平顶崖口
+    function band(side, color, thick, inset) {
+      g.fillStyle = color;
+      if (side === 1) g.fillRect(0, inset, S, thick);
+      else if (side === 4) g.fillRect(0, S - thick - inset, S, thick);
+      else if (side === 8) g.fillRect(inset, 0, thick, S);
+      else g.fillRect(S - thick - inset, 0, thick, S);
+    }
+    var sides = [1, 2, 4, 8], topBits = [16, 32, 64, 128];
+    // 带内侧撒几颗落石：把笔直的崖线/山脚影打散，避免"混凝土边框"感
+    function rubble(side, thick) {
+      for (var ni = 0; ni < 3; ni++) {
+        var np = 3 + ((variant * 9 + ni * 11 + side * 3) % 24);
+        var rx = (side === 1 || side === 4) ? np : (side === 8 ? thick - 1 : S - thick + 1);
+        var ry = (side === 1 || side === 4) ? (side === 1 ? thick - 1 : S - thick + 1) : np;
+        g.fillStyle = rockSide;
+        g.beginPath(); g.arc(rx, ry, 1.7 + (ni % 2) * 0.8, 0, Math.PI * 2); g.fill();
+        g.fillStyle = rockTop;
+        g.fillRect(rx - 1.1, ry - 1.7, 1.7, 1);
+      }
+    }
+    for (var si = 0; si < 4; si++) {
+      var sd = sides[si];
+      if (isTop) {
+        if (!(mask & topBits[si])) {          // 这一侧不再是平顶 → 崖口
+          band(sd, 'rgba(22,27,17,0.7)', 4, 0);
+          band(sd, 'rgba(214,226,188,0.42)', 1.5, 4);
+          rubble(sd, 4);
+        }
+      } else {
+        if (!(mask & sd)) { band(sd, 'rgba(15,36,9,0.5)', 4, 0); rubble(sd, 4); }  // 与草地接壤的山脚影
+        else if (mask & topBits[si]) band(sd, 'rgba(208,230,158,0.16)', 3, 0);     // 坡顶接入平顶的棱
+      }
+    }
+  }
+
+  /**
    * 相位 = frameCount*0.04 + tx*0.7 + ty*0.5，逐格天然错相，量化档只按相位索引即可保留错相效果。
    * 第三条波纹原为独立相位（0.03 频率、只含 tx），现绑到主相位（×0.75 保持频率比）——
    * 装饰性水纹，同步与否肉眼不可辨。
@@ -198,6 +397,10 @@ export class Renderer {
           var wPhase = (frameCount * 0.04 + tx * 0.7 + ty * 0.5) % (Math.PI * 2);
           if (wPhase < 0) wPhase += Math.PI * 2;
           ctx.drawImage(this._getWaterCanvas(Math.min(WATER_PHASES - 1, Math.floor(wPhase / (Math.PI * 2) * WATER_PHASES))), sx, sy);
+        } else if (terrain === HILL || terrain === HILL_TOP || terrain === SANDBAG) {
+          // 山包/山顶/沙袋：邻格位掩码让山脊连绵、沙袋墙只在受敌侧留缺口
+          ctx.drawImage(this._getReliefCanvas(terrain, (tx * 7 + ty * 13) % 4,
+            this._reliefMask(gameState.map, tx, ty, terrain)), sx, sy);
         } else {
           ctx.drawImage(this.getTileCanvas(terrain, tx, ty), sx, sy);
         }
@@ -638,6 +841,9 @@ export class Renderer {
           else if (t === CONCRETE) tCtx.fillStyle = '#3d3d3d';
           else if (t === SAND) tCtx.fillStyle = '#9a7d0a';
           else if (t === TREE) tCtx.fillStyle = '#1e4a10';
+          else if (t === HILL) tCtx.fillStyle = '#6b7d5a';
+          else if (t === HILL_TOP) tCtx.fillStyle = '#93896f';
+          else if (t === SANDBAG) tCtx.fillStyle = '#b59b6a';
           else continue;
           tCtx.fillRect(mx * sx, my * sy, sx + 1, sy + 1);
         }

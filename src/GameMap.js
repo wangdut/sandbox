@@ -1,4 +1,4 @@
-import { MAP_WIDTH, MAP_HEIGHT, GRASS, WATER, ORE, ROCK, CONCRETE, SAND, TREE } from './constants.js';
+import { MAP_WIDTH, MAP_HEIGHT, GRASS, WATER, ORE, ROCK, CONCRETE, SAND, TREE, HILL, HILL_TOP, SANDBAG } from './constants.js';
 
 // 八方向邻居偏移（模块级常量，避免每次寻路重建数组）
 const DIRS = new Int8Array([-1, 0, 1, 0, 0, -1, 0, 1, -1, -1, -1, 1, 1, -1, 1, 1]);
@@ -364,6 +364,10 @@ export class GameMap {
         if (terrain === SAND) moveCost *= 1.3;
         else if (terrain === CONCRETE) moveCost *= 0.9;
         else if (terrain === TREE) moveCost *= 1.5;
+        // 爬坡很慢：非必要不绕山；但"去抢山顶"依然走得通（山顶本身平坦，代价只略高）
+        else if (terrain === HILL) moveCost *= 1.6;
+        else if (terrain === HILL_TOP) moveCost *= 1.2;
+        else if (terrain === SANDBAG) moveCost *= 1.15;
 
         // 威胁代价：成员（avoidDanger）会主动绕开敌方碉堡/炮塔的射程
         if (dangerGrid) {
@@ -466,6 +470,10 @@ export class GameMap {
     if (x < 0 || x >= MAP_WIDTH || y < 0 || y >= MAP_HEIGHT) return false;
     const t = this.terrain[y][x];
     if (t === WATER || t === ROCK) return false;
+    // 山包与沙袋只属于步兵：轮履车辆爬不上山、压不进工事（乘驾中的成员 type2 已变成 vehicle，
+    // 同样被拦在外面，这样"山顶伏击位"才是步兵独有的战术资源）。空军无视地形。
+    if ((t === HILL || t === HILL_TOP || t === SANDBAG) && requester && !requester.isAirUnit &&
+        (requester.type2 === 'vehicle' || requester.type2 === 'harvester')) return false;
     const occ = this.occupancy[y][x];
     if (occ && occ.isBuilding) {
       // 己方建筑不阻挡己方单位通行：基地建筑密集时，单位不会被自家厂房围死。

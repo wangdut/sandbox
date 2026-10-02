@@ -74,6 +74,10 @@ export function applyWeapon(unit, mode) {
   unit.antiArmor = w.antiArmor;
   unit.splashRadius = w.splashRadius;
   unit.antiAir = !!w.antiAir;
+  // 高地加成是在 damage/range 上做的差量修改，数值被整体覆盖后必须解除标记，
+  // 否则 MemberSystem 下一帧回滚时会减掉不存在的那份加成
+  unit._hgApplied = false;
+  unit.onHighGround = false;
   return true;
 }
 
@@ -114,6 +118,8 @@ export function boardVehicle(member, mountEntity) {
   member.splashRadius = def.splashRadius || 0;
   member.antiAir = !!def.antiAir;
   member.antiArmor = false;
+  member._hgApplied = false;
+  member.onHighGround = false;
   member.type2 = def.type;
   member.size = def.size || 1;
   member.isAirUnit = def.type === TYPE_AIRCRAFT || def.type === TYPE_HELICOPTER || def.type === TYPE_AIRSHIP;
