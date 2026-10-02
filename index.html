@@ -1,0 +1,134 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>红警网页复刻版</title>
+<link rel="stylesheet" href="css/style.css">
+</head>
+<body>
+
+<div id="startScreen">
+  <h1>RED ALERT</h1>
+  <h2>红警网页复刻版</h2>
+  <p class="sub">即时战略 · 摧毁敌方建造厂以获得胜利 · 非官方复刻，与 EA 无关</p>
+  <div class="mode-container">
+    <div class="mode-card easy" onclick="startGame('easy')">
+      <h3>简单</h3>
+      <p>AI 资源较少<br>进攻缓慢温和<br>新手入门推荐</p>
+    </div>
+    <div class="mode-card normal" onclick="startGame('normal')">
+      <h3>普通</h3>
+      <p>平衡的对战体验<br>AI 拥有完整科技<br>战术挑战</p>
+    </div>
+    <div class="mode-card hard" onclick="startGame('hard')">
+      <h3>困难</h3>
+      <p>AI 资源充裕<br>快速扩张+频繁攻击<br>极限战术挑战</p>
+    </div>
+  </div>
+  <p class="start-hint">左键选择 &nbsp;·&nbsp; 右键移动/攻击 &nbsp;·&nbsp; 拖拽框选 &nbsp;·&nbsp; Ctrl+数字 编队</p>
+</div>
+
+<div id="gameOver">
+  <h1 id="gameOverText" style="color:#c0392b;">DEFEATED</h1>
+  <p id="gameOverSub">你的基地被摧毁了</p>
+  <div id="gameStats"></div>
+  <button class="start-btn" onclick="location.reload()">重新开始</button>
+</div>
+
+<canvas id="gameCanvas"></canvas>
+
+<div id="topBar">
+  <div class="res-group">
+    <div class="res-icon res-credits">$</div>
+    <span class="res-label">资金</span>
+    <span class="res-value" id="resCredits">5000</span>
+  </div>
+  <span class="sep">|</span>
+  <div class="res-group">
+    <div class="res-icon res-power">⚡</div>
+    <span class="res-label">电力</span>
+    <span class="res-value" id="resPower">0/0</span>
+  </div>
+  <span class="sep">|</span>
+  <div class="res-group">
+    <div class="res-icon res-unit">★</div>
+    <span class="res-label">单位</span>
+    <span class="res-value" id="resUnits">0/25</span>
+  </div>
+  <span id="gameTime">00:00</span>
+  <button id="pauseBtn" onclick="togglePause()">暂停</button>
+  <button id="speedBtn" onclick="cycleSpeed()">1×</button>
+  <button id="fullscreenBtn" onclick="toggleFullscreen()" title="全屏">⛶</button>
+</div>
+
+<div id="sidebar">
+  <div id="sidebarHeader">RED ALERT</div>
+  <div id="buildTabs">
+    <div class="build-tab active" data-tab="buildings" onclick="switchTab('buildings')">建筑</div>
+    <div class="build-tab" data-tab="units" onclick="switchTab('units')">单位</div>
+    <div class="build-tab" data-tab="defenses" onclick="switchTab('defenses')">防御</div>
+  </div>
+  <div id="buildList"></div>
+  <div id="actionPanel">
+    <button class="action-btn" id="btnRepair" onclick="toggleAction('repair')" title="维修建筑">🔧 维修</button>
+    <button class="action-btn" id="btnSell" onclick="toggleAction('sell')" title="出售建筑回收资金">💰 出售</button>
+    <button class="action-btn" id="btnStop" onclick="commandStop()" title="停止所有动作">■ 停止</button>
+  </div>
+  <div id="selectionInfo">
+    <span class="info-hint">左键选择 · 右键移动/攻击 · 拖拽框选</span>
+  </div>
+  <div id="superWeaponPanel" class="hidden">
+    <div id="swHeader">SUPER WEAPONS</div>
+    <div id="swList"></div>
+  </div>
+  <div id="minimap">
+    <canvas id="minimapCanvas"></canvas>
+    <div id="minimapLabel">MINIMAP</div>
+    <div id="minimapStats"></div>
+  </div>
+  <div id="hotkeys">
+    <div class="hk"><span>S</span>停</div>
+    <div class="hk"><span>A</span>攻</div>
+    <div class="hk"><span>G</span>护</div>
+    <div class="hk"><span>Ctrl+A</span>全选</div>
+    <div class="hk"><span>Space</span>暂停</div>
+    <div class="hk"><span>F5</span>存档</div>
+    <div class="hk"><span>F9</span>读档</div>
+    <div class="hk"><span>H</span>帮助</div>
+  </div>
+</div>
+
+<button id="helpFAB" onclick="showHelp()">操作说明</button>
+
+<div id="groupBar"></div>
+
+<div id="helpOverlay">
+  <div id="helpBox">
+    <h2>操作说明</h2>
+    <div class="row"><span class="desc">选择单位/建筑</span><span class="key">左键</span></div>
+    <div class="row"><span class="desc">框选多个单位</span><span class="key">拖拽左键</span></div>
+    <div class="row"><span class="desc">加选/减选</span><span class="key">Shift+左键</span></div>
+    <div class="row"><span class="desc">移动 / 攻击 / 集结</span><span class="key">右键</span></div>
+    <div class="row"><span class="desc">停止当前命令</span><span class="key">S</span></div>
+    <div class="row"><span class="desc">主动攻击模式</span><span class="key">A</span></div>
+    <div class="row"><span class="desc">守卫位置 (Guard)</span><span class="key">G</span></div>
+    <div class="row"><span class="desc">全选己方单位</span><span class="key">Ctrl+A</span></div>
+    <div class="row"><span class="desc">建立编队 1-9</span><span class="key">Ctrl+数字</span></div>
+    <div class="row"><span class="desc">召回编队 1-9</span><span class="key">数字键</span></div>
+    <div class="row"><span class="desc">双击数字键 - 跳转编队</span><span class="key">数字×2</span></div>
+    <div class="row"><span class="desc">回到主基地视角</span><span class="key">Home</span></div>
+    <div class="row"><span class="desc">暂停 / 继续</span><span class="key">Space</span></div>
+    <div class="row"><span class="desc">取消建造/选择</span><span class="key">ESC</span></div>
+    <div class="row"><span class="desc">滚轮 - 地图缩放</span><span class="key">Ctrl+Wheel</span></div>
+    <div class="row"><span class="desc">存档</span><span class="key">F5</span></div>
+    <div class="row"><span class="desc">读档</span><span class="key">F9</span></div>
+    <div class="row"><span class="desc">删除选中单位</span><span class="key">Delete</span></div>
+    <button id="helpClose" onclick="hideHelp()">关闭</button>
+  </div>
+</div>
+
+<div id="notification"></div>
+<script type="module" src="src/main.js"></script>
+</body>
+</html>
