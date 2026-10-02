@@ -11,6 +11,7 @@ import { MemberSystem } from './sandbox/memberSystem.js';
 import { MemberPanel } from './ui/MemberPanel.js';
 import { BudgetPanel } from './ui/BudgetPanel.js';
 import { ChatPanel } from './ui/ChatPanel.js';
+import { VoiceInput } from './ui/VoiceInput.js';
 import { loadConfig, saveConfig } from './agents/config.js';
 import { AgentManager } from './agents/AgentManager.js';
 import { CommandBus } from './core/commandBus.js';
@@ -32,7 +33,7 @@ setNotifier(notify);
 
 let canvas, minimapCanvas, ctx, minimapCtx;
 let gameState, renderer, ui, input, sandboxAI, saveManager, memberSystem, memberPanel;
-let commandBus, agentManager, chatPanel, sandboxConfig, budgetPanel;
+let commandBus, agentManager, chatPanel, sandboxConfig, budgetPanel, voiceInput;
 let camera = { x: 0, y: 0, zoom: 1 };
 let selectedUnits = [], selectedBuilding = null;
 let placingBuilding = false, placingType = null;
@@ -171,9 +172,37 @@ function startGame(side) {
     },
   });
   chatPanel = new ChatPanel();
+  // 语音下令：按住 V 说话（或按住 🎤 按钮），识别结果作为上帝命令发出
+  voiceInput = new VoiceInput();
+  const voiceOk = voiceInput.init({
+    onState: function (state, msg) { chatPanel.setVoiceState(state, msg); },
+    onPartial: function (text) { chatPanel.setInputText(text); },
+    onFinal: function (text) {
+      chatPanel.setInputText('');
+      if (!text) return;
+      chatPanel.setVoiceState('idle', '识别为「' + text + '」，已作为命令下达');
+      sendGodCommand(text, 'voice');
+    },
+  });
   chatPanel.init({
-    onSendCommand: sendGodCommand,
+    onSendCommand: function (text) { sendGodCommand(text, 'text'); },
     onQuickCommand: sendQuickCommand,
+    voiceSupported: voiceOk,
+    onVoiceStart: function () { voiceInput.start(); },
+    onVoiceStop: function () { voiceInput.stop(); },
+  });
+  // 按住 V 说话：keydown 开始、keyup 结束（输入框内不触发）
+  document.addEventListener('keydown', function (ev) {
+    if (ev.code !== 'KeyV' || ev.repeat || ev.ctrlKey) return;
+    const t = ev.target;
+    if (t && (t.tagName === 'INPUT' || t.tagName === 'TEXTAREA')) return;
+    if (!gameRunning) return;
+    ev.preventDefault();
+    voiceInput.start();
+  });
+  document.addEventListener('keyup', function (ev) {
+    if (ev.code !== 'KeyV') return;
+    voiceInput.stop();
   });
   if (agentManager.llmReady) {
     chatPanel.addSystem('【系统】成员大脑已接入（' + sandboxConfig.model + '）。输入命令并回车即可下达给己方成员。');
@@ -411,13 +440,15 @@ function updateResources() {
 }
 
 /**
- * 上帝命令：打字输入 → 命令通道 → 己方成员各自调用 LLM 回应与决策
+ * 上帝命令：打字或语音输入 → 命令通道 → 己方成员各自调用 LLM 回应与决策
+ * @param source 'text' | 'voice'
  */
-function sendGodCommand(text) {
+function sendGodCommand(text, source) {
   if (!commandBus || !agentManager) return;
-  const cmd = commandBus.sendCommand({ team: gameState.humanTeam, type: 'text', text: text });
+  const type = source === 'voice' ? 'voice' : 'text';
+  const cmd = commandBus.sendCommand({ team: session.humanTeam, type: type, text: text, source: source || 'god' });
   if (!cmd) return;
-  chatPanel.addSystem('【你 → 蓝方】' + text);
+  chatPanel.addSystem((type === 'voice' ? '【语音 → 己方】' : '【你 → 己方】') + text);
   if (!agentManager.llmReady) {
     chatPanel.addSystem('（未配置 API Key：成员无法用 LLM 回应，仅按脚本 AI 行动。到 config.html 粘贴 Key 后刷新页面）');
   }
@@ -430,9 +461,9 @@ function sendQuickCommand(kind) {
   if (!commandBus || !agentManager) return;
   const LABELS = { allAttack: '总攻', retreat: '撤退', defend: '回防', regroup: '集合' };
   const label = LABELS[kind] || kind;
-  commandBus.sendCommand({ team: gameState.humanTeam, type: 'quick', kind: kind, text: '【' + label + '】', queue: false });
-  chatPanel.addSystem('【你 → 蓝方】' + label + '（快捷命令，不消耗 token）');
-  const n = agentManager.applyQuickCommand(gameState, gameState.humanTeam, kind);
+  commandBus.sendCommand({ team: session.humanTeam, type: 'quick', kind: kind, text: '【' + label + '】', queue: false });
+  chatPanel.addSystem('【你 → 己方】' + label + '（快捷命令，不消耗 token）');
+  const n = agentManager.applyQuickCommand(gameState, session.humanTeam, kind);
   if (n === 0) chatPanel.addSystem('（当前没有可用成员，可能在等待重生）');
 }
 

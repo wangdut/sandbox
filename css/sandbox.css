@@ -209,6 +209,15 @@ body.sandbox .mode-card.easy:hover { box-shadow: 0 0 18px rgba(74, 159, 212, .35
 #chatQuick button:hover:not(:disabled) { border-color: var(--vs-blue); color: #fff; }
 #chatQuick button:active:not(:disabled) { transform: translateY(1px); }
 #chatQuick button:disabled { opacity: .45; cursor: not-allowed; }
+#chatQuick button.listening {
+  background: linear-gradient(180deg, #c0392b, #7d2318);
+  color: #fff; border-color: #e05c4a;
+  animation: vs-pulse 1s ease-in-out infinite;
+}
+@keyframes vs-pulse {
+  0%, 100% { box-shadow: 0 0 0 0 rgba(224, 92, 74, .6); }
+  50% { box-shadow: 0 0 0 6px rgba(224, 92, 74, 0); }
+}
 #chatStats { margin-left: auto; color: #7a7a8c; font-size: 11px; }
 #configLink { color: var(--vs-blue); text-decoration: none; font-size: 11px; margin-left: 10px; }
 #configLink:hover { text-decoration: underline; }

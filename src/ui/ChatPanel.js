@@ -49,10 +49,43 @@ export class ChatPanel {
       const inField = ev.target && (ev.target.tagName === 'INPUT' || ev.target.tagName === 'TEXTAREA');
       if (ev.key === 'Enter' && !inField) { ev.preventDefault(); dom.input.focus(); }
     });
+    // 语音按钮：可用则按住/点击说话，不可用则说明原因（M4 已启用）
     if (dom.voiceBtn) {
-      dom.voiceBtn.disabled = true;
-      dom.voiceBtn.title = '语音输入将在 M4 开放（接口已预留：commandBus type=voice）';
+      if (self._callbacks.voiceSupported) {
+        dom.voiceBtn.disabled = false;
+        dom.voiceBtn.title = '按住 V（或按住此按钮）说话下令';
+        dom.voiceBtn.addEventListener('mousedown', function (ev) {
+          ev.preventDefault();
+          if (self._callbacks.onVoiceStart) self._callbacks.onVoiceStart();
+        });
+        dom.voiceBtn.addEventListener('mouseup', function () {
+          if (self._callbacks.onVoiceStop) self._callbacks.onVoiceStop();
+        });
+        dom.voiceBtn.addEventListener('mouseleave', function () {
+          if (self._callbacks.onVoiceStop) self._callbacks.onVoiceStop();
+        });
+      } else {
+        dom.voiceBtn.disabled = true;
+        dom.voiceBtn.title = '当前浏览器不支持语音识别（建议用 Chrome / Edge）';
+      }
     }
+  }
+
+  /** 语音状态提示：listening 时按钮高亮 */
+  setVoiceState(state, message) {
+    if (!this._dom || !this._dom.voiceBtn) return;
+    this._dom.voiceBtn.classList.toggle('listening', state === 'listening');
+    if (state === 'listening') {
+      this._dom.voiceBtn.textContent = '🎤 录音中…';
+    } else {
+      this._dom.voiceBtn.textContent = '🎤 语音';
+    }
+    if (message) this.addSystem('【语音】' + message);
+  }
+
+  /** 把识别中间结果写进输入框，让玩家看到正在识别什么 */
+  setInputText(text) {
+    if (this._dom && this._dom.input) this._dom.input.value = text;
   }
 
   /** 系统提示（上帝命令、通讯中断等） */
