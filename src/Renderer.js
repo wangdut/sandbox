@@ -4,6 +4,10 @@ import { TILE_SIZE, MAP_WIDTH, MAP_HEIGHT, GRASS, WATER, ORE, ROCK, CONCRETE, SA
 import { BUILDING_DEFS, DEFENSE_DEFS, UNIT_DEFS, SUPER_WEAPONS, FACTION_ALLIED, FACTION_SOVIET } from './definitions.js';
 import { drawBuilding as drawBuildingSprite, drawUnit as drawUnitSprite, drawMemberLabel, memberLabelHeight, MEMBER_LABEL_FONT } from './Sprites.js';
 
+// 画布内文字字号：按用户反馈整体放大约 35%（气泡 10→13.5、飘字 12→16）
+export const SPEECH_FONT = 13.5;
+export const FLOAT_FONT = 16;
+
 // 水纹动画的相位量化档数。原实现每格每帧程序化绘制（1 底色 + 3 波纹 + 2 次 sin），
 // 预渲染为 64 张相位图后每格只需 1 次取模 + 1 次 drawImage。
 // 64 档 / 2.6s 周期 ≈ 25 步/秒，缓慢水纹的跳变肉眼不可辨。
@@ -244,10 +248,14 @@ export class Renderer {
 
       // 停放载具：加个"无人"标记，和成员开的车区分开
       if (e.isMount) {
-        ctx.font = 'bold 9px "Microsoft YaHei", Arial, sans-serif';
+        ctx.font = 'bold 12px "Microsoft YaHei", Arial, sans-serif';
         ctx.textAlign = 'center';
-        ctx.fillStyle = 'rgba(241,196,15,.9)';
+        ctx.lineWidth = 2.5;
+        ctx.strokeStyle = 'rgba(0,0,0,0.8)';
+        ctx.strokeText('⚙ 载具', ex + eS / 2, ey2 - 10);
+        ctx.fillStyle = 'rgba(241,196,15,.95)';
         ctx.fillText('⚙ 载具', ex + eS / 2, ey2 - 10);
+        ctx.lineWidth = 1;
         ctx.textAlign = 'left';
       }
       // 乘驾中的成员：补金色光环 + 统一标签（名字在上、血条在下，位于载具上方）
@@ -423,12 +431,12 @@ export class Renderer {
 
     // Floating texts
     ctx.textAlign = 'center';
-    ctx.font = 'bold 12px Arial';
+    ctx.font = 'bold ' + FLOAT_FONT + 'px Arial';
     for (var fi = 0; fi < gameState.floatingTexts.length; fi++) {
       var ft = gameState.floatingTexts[fi];
       var ftx = ft.x, fty = ft.y;
-      // 剔除：12px 字体、居中绘制，128px 余量足够覆盖任意文本宽度
-      if (ftx + 128 < cullL || ftx - 128 > cullR || fty + 128 < cullT || fty - 128 > cullB) continue;
+      // 剔除：16px 字体、居中绘制，170px 余量足够覆盖任意文本宽度
+      if (ftx + 170 < cullL || ftx - 170 > cullR || fty + 170 < cullT || fty - 170 > cullB) continue;
       ctx.globalAlpha = ft.timer / 50;
       ctx.fillStyle = 'rgba(0,0,0,0.5)';
       ctx.fillText(ft.text, ftx + 1, fty + 1);
@@ -441,21 +449,21 @@ export class Renderer {
     // 成员喊话气泡：跟随单位，显示约 4 秒后淡出（沙盘社交的可视化）
     if (gameState.speechBubbles && gameState.speechBubbles.length > 0) {
       ctx.textAlign = 'center';
-      ctx.font = 'bold 10px "Microsoft YaHei", Arial, sans-serif';
+      ctx.font = 'bold ' + SPEECH_FONT + 'px "Microsoft YaHei", Arial, sans-serif';
       for (var si = 0; si < gameState.speechBubbles.length; si++) {
         var sp = gameState.speechBubbles[si];
-        if (sp.x + 140 < cullL || sp.x - 140 > cullR || sp.y + 120 < cullT || sp.y - 120 > cullB) continue;
+        if (sp.x + 180 < cullL || sp.x - 180 > cullR || sp.y + 160 < cullT || sp.y - 160 > cullB) continue;
         // 自动折行：每行 11 个中文字符，最多两行
         var lines = [];
         for (var ci = 0; ci < sp.text.length && lines.length < 2; ci += 11) {
           lines.push(sp.text.slice(ci, ci + 11));
         }
         if (sp.text.length > 22) lines[1] = lines[1].slice(0, 10) + '…';
-        var lineH = 13;
+        var lineH = 18;
         var boxW = 0;
         for (var li = 0; li < lines.length; li++) boxW = Math.max(boxW, ctx.measureText(lines[li]).width);
-        boxW += 12;
-        var boxH = lines.length * lineH + 8;
+        boxW += 14;
+        var boxH = lines.length * lineH + 10;
         // 成员头顶有「名字+血条」标签，气泡需再上移，避免压住标签
         var lift = (sp.entity && sp.entity.isMember) ? memberLabelHeight(MEMBER_LABEL_FONT) + 8 : 0;
         var bx = sp.x - boxW / 2, by = sp.y - 30 - boxH - lift;
@@ -477,7 +485,7 @@ export class Renderer {
         ctx.fill();
         ctx.fillStyle = sp.color;
         for (var ti = 0; ti < lines.length; ti++) {
-          ctx.fillText(lines[ti], sp.x, by + 14 + ti * lineH);
+          ctx.fillText(lines[ti], sp.x, by + 17 + ti * lineH);
         }
         ctx.globalAlpha = 1;
       }
