@@ -8,11 +8,12 @@ import { parseDecision } from '../src/agents/parser.js';
 import { CommandBus } from '../src/core/commandBus.js';
 import { MEMBERS, WEAPONS, applyWeapon, boardVehicle, dismountVehicle } from '../src/sandbox/memberDefs.js';
 import { fallbackDecide, quickCommandDecision } from '../src/agents/FallbackAI.js';
+import { isAIAutoTargetable } from '../src/agents/targeting.js';
 import { buildSystemPrompt, buildSnapshot } from '../src/agents/prompts.js';
 import { DEFAULT_CONFIG, resolveMemberAuth, isAgentEnabled, migrateConfig } from '../src/agents/config.js';
 import { DEFENSE_DEFS, UNIT_DEFS } from '../src/definitions.js';
 import { GameMap } from '../src/GameMap.js';
-import { FPS, TEAM_PLAYER, TEAM_ENEMY, GRASS, MAP_WIDTH, MAP_HEIGHT } from '../src/constants.js';
+import { FPS, TEAM_PLAYER, TEAM_ENEMY, TEAM_NEUTRAL, GRASS, MAP_WIDTH, MAP_HEIGHT } from '../src/constants.js';
 
 let passed = 0;
 const failures = [];
@@ -109,6 +110,30 @@ eq('兜底: 无事则推进敌方指挥所', dPush.action, 'attack_move');
 eq('兜底: 拆家用火箭筒', dPush.weapon, 'rocket');
 eq('快捷: 总攻指向敌方指挥所', quickCommandDecision('allAttack', memberLow, { board }).target.类型, 'unit');
 eq('快捷: 撤退回己方指挥所', quickCommandDecision('retreat', memberLow, { board }).action, 'retreat');
+
+// ==================== 5b. 中立高楼 = 掩体，不是 AI 的猎物 ====================
+// 故意把高楼放得比敌方指挥所更近：修复前，"最近敌方"扫描会把 team!==myTeam 的高楼当敌人推过去拆
+const highrise = { id: 77, name: '高楼大厦', team: TEAM_NEUTRAL, isBuilding: true, aiIgnore: true, blocksFire: true,
+  size: 2, x: 8, y: 32, hp: 900, maxHp: 900, dead: false, getCenterX: () => 272, getCenterY: () => 1040 };
+ok('楼房: 统一判定剔除中立高楼', isAIAutoTargetable(highrise, TEAM_PLAYER) === false);
+ok('楼房: 真敌人仍可被选中', isAIAutoTargetable({ id: 20, team: TEAM_ENEMY, dead: false }, TEAM_PLAYER) === true);
+
+function withCover(opts) {
+  const gs = makeGameState(opts || {});
+  gs.entities = gs.entities.concat([highrise]);
+  return gs;
+}
+const dCover = fallbackDecide(withCover({}), { ...memberLow, hp: 380 }, { spec: MEMBERS[0], board });
+ok('楼房: 兜底 AI 不主动攻击中立高楼（' + dCover.action + '→' + dCover.target.id + '）', dCover.target.id !== highrise.id);
+
+const coverMember = { ...memberLow, hp: 380, maxHp: 380, x: 5, y: 34, weaponMode: 'mg', fireCooldown: 0,
+  memberName: '雷霆', type2: 'infantry', getCenterX: () => 176, getCenterY: () => 1104 };
+const coverSnap = JSON.parse(buildSnapshot(withCover({}), coverMember, {
+  spec: MEMBERS[0], board, lastCommand: null, events: [], allyMsgs: [], enemyMsgs: [],
+}));
+ok('楼房: 喂给模型的可选目标不含高楼', (coverSnap['可选目标'] || []).every((t) => t.id !== highrise.id));
+ok('楼房: 高楼改列入"掩体"并标注非目标', (coverSnap['掩体'] || []).some((c) => c['定位'].indexOf('非攻击目标') >= 0));
+ok('楼房: 系统提示禁止主动拆楼', buildSystemPrompt(MEMBERS[0]).includes('绝不要主动攻击它'));
 
 // ==================== 6. 提示词与快照契约 ====================
 const sys = buildSystemPrompt(MEMBERS[0]);

@@ -8,6 +8,7 @@
 import { TEAM_NAMES, TEAM_PLAYER } from '../constants.js';
 import { WEAPONS } from '../sandbox/memberDefs.js';
 import { UNIT_DEFS } from '../definitions.js';
+import { isAIAutoTargetable } from './targeting.js';
 
 const ACTION_LIST = 'attack_move|attack|move|retreat|hold|guard|board|dismount';
 
@@ -27,6 +28,7 @@ export function buildSystemPrompt(spec, humanTeam) {
     '【地形】地图 64×64。敌方指挥所旁有碉堡与重炮塔：进入其射程会被持续压制，从防御薄弱的方位（如基地背面）进攻更明智。系统寻路已会自动绕开防御射程。',
     '【生存】血量低于一半就应脱离战斗、撤回己方指挥所回血；别和碉堡/炮塔硬刚，它们火力强、拆得慢——用火箭筒远程点掉或干脆绕开。',
     '【目标选择】优先摧毁敌方「指挥所」或击杀敌方成员；攻击"防御工事"收益低，除非它正好挡在必经之路。',
+    '【楼房】地图上的中立「高楼大厦」是障碍物兼掩体：它不可通行，会截断双方的子弹与炮弹。看到"掩体"列表里的楼，要贴着它、绕到它背向来敌的一侧来躲火力；绝不要主动攻击它——拆楼既浪费火力又暴露位置，只有指挥官明确下令时才动手。',
     '【载具】己方指挥所旁停放着载具（主战坦克/装甲车/炮艇机/轰炸机），见"可用载具"列表（都是空闲的）。想上车：把"动作"设为 board、"目标"指向该载具 id，你会走过去乘驾，获得更强装甲与火力（对建筑伤害大增）；想下车：动作 dismount（无需目标）。乘驾中无法切换步兵武器；载具快被打爆时（血量低于四分之一）应 dismount 弃车保命。',
     '【台词】像游戏里的玩家说话，口语、自然，最多 40 字。不必刻意压短：可以把报点、分工、意图说清楚（例如"敌坦克从桥头过来了，我先卡住沙袋，等我绕侧"）。',
     '【喊话】"对谁"填"队友"表示协同交流（如报点、分工），只有本方队友能看到；偶尔也可以（不要频繁）填"敌方"来挑衅或劝降，这条是全场公开的；填 null 就是普通自语。',
@@ -82,9 +84,10 @@ export function buildSnapshot(gameState, member, ctx) {
   const enemyHq = ctx.board.enemyHq;
   const weapon = WEAPONS[member.weaponMode] || WEAPONS.mg;
 
-  // 可选目标：射程/视野内最近的敌方单位与建筑（含防御工事），最多 6 个
+  // 可选目标：射程/视野内最近的敌方单位与建筑（含防御工事），最多 6 个。
+  // 中立高楼走 isAIAutoTargetable 剔除——它是掩体不是猎物，列进来会让模型顺手去拆。
   const enemies = gameState.entities
-    .filter(function (e) { return !e.dead && e.team !== member.team; })
+    .filter(function (e) { return isAIAutoTargetable(e, member.team); })
     .map(function (e) { return { e: e, d: distTiles(member, e) }; })
     .filter(function (o) { return o.d <= 22; })
     .sort(function (a, b) { return a.d - b.d; })
@@ -120,6 +123,17 @@ export function buildSnapshot(gameState, member, ctx) {
       return { id: e.id, 名称: e.name, 距离: distTiles(member, e), 位置: tileOf(e) };
     });
 
+  // 邻近障碍/掩体：中立高楼会截断双方直射弹道，可贴着它走位躲火力；它不是猎物
+  const covers = gameState.entities
+    .filter(function (e) { return !e.dead && e.aiIgnore; })
+    .map(function (e) { return { e: e, d: distTiles(member, e) }; })
+    .filter(function (o) { return o.d <= 16; })
+    .sort(function (a, b) { return a.d - b.d; })
+    .slice(0, 3)
+    .map(function (o) {
+      return { 名称: o.e.name, 距离: o.d, 位置: tileOf(o.e), 定位: '障碍/挡弹掩体，非攻击目标（除非指挥官下令拆）' };
+    });
+
   const snap = {
     你是: TEAM_NAMES[member.team] + '·' + member.memberName,
     自身: {
@@ -143,6 +157,7 @@ export function buildSnapshot(gameState, member, ctx) {
     当前动作: ctx.currentAction || null,
     可选目标: enemies,
     可用载具: mounts,
+    掩体: covers,
     队友: mates,
     最近事件: ctx.events.slice(-4),
     队友消息: ctx.allyMsgs.slice(-3),

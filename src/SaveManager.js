@@ -17,6 +17,8 @@ const PERSISTED_FIELDS = [
   // 成员与乘驾载具：漏掉会让读档后成员退化成普通步兵、停放载具失去"可上车"标记
   'isMember', 'memberKey', 'memberName', 'weaponMode', 'mountType', 'isMount',
   'isAirUnit', 'armorType', 'damageType', 'avoidDanger',
+  // 高楼的行为标记：漏掉会让读档后 AI 重新把中立高楼当自动目标、并失去弹道遮挡
+  'aiIgnore', 'blocksFire',
   'ejectCooldown', 'ejectInvuln'
 ];
 // {x, y} 坐标点字段

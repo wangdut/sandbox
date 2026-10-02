@@ -4,6 +4,7 @@
 // 行为刻意简单：低血撤退 → 打最近敌人 → 否则推进敌方指挥所。
 
 import { TEAM_NAMES } from '../constants.js';
+import { isAIAutoTargetable } from './targeting.js';
 
 const RETREAT_LINES = ['我先撤回去补血！', '撑不住了，回防！', '血量太低，撤！'];
 const FIGHT_LINES = ['发现敌人，开火！', '交给我，打！', '有敌人，吃我一发！'];
@@ -109,10 +110,10 @@ export function fallbackDecide(gameState, member, ctx) {
     };
   }
 
-  // 3) 视野内最近的敌方成员/建筑：推过去打
+  // 3) 视野内最近的敌方成员/建筑：推过去打（中立高楼是掩体，不主动打）
   let nearest = null, nd = Infinity;
   gameState.entities.forEach(function (e) {
-    if (e.dead || e.team === member.team) return;
+    if (!isAIAutoTargetable(e, member.team)) return;
     const d = (e.x - member.x) * (e.x - member.x) + (e.y - member.y) * (e.y - member.y);
     if (d < nd) { nd = d; nearest = e; }
   });

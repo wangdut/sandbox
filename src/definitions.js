@@ -54,7 +54,7 @@ export const DEFENSE_DEFS = {
 
 // ==================== 中立建筑（地图装饰/掩体，双方都可摧毁）====================
 export const NEUTRAL_BUILDING_DEFS = {
-  highrise: { name:'高楼大厦', cost:0, hp:900, size:2, buildTime:0, requires:[], category:'buildings', icon:'#8899aa', desc:'可摧毁的中立高楼，遮挡视线与道路', faction: null, armorType: 'concrete' },
+  highrise: { name:'高楼大厦', cost:0, hp:900, size:2, buildTime:0, requires:[], category:'buildings', icon:'#8899aa', desc:'中立高楼：挡住道路与直射弹道的掩体，可被摧毁', faction: null, armorType: 'concrete', aiIgnore: true, blocksFire: true },
 };
 
 // ==================== 单位定义 ====================

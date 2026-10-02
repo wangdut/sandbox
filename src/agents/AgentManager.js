@@ -14,6 +14,7 @@ import { session } from '../core/session.js';
 import { buildSystemPrompt, buildSnapshot } from './prompts.js';
 import { parseDecision } from './parser.js';
 import { fallbackDecide, quickCommandDecision } from './FallbackAI.js';
+import { isAIAutoTargetable } from './targeting.js';
 import { chatOnce } from './LLMClient.js';
 import { isAgentEnabled, resolveMemberAuth, isLLMReady } from './config.js';
 
@@ -109,6 +110,7 @@ export class AgentManager {
         lastHurtEventFrame: -99999,
         lastContactId: 0,
         lastContactFrame: -99999,
+        lastCoverId: 0,
         lowHpFlag: false,
         pendingCommand: null,
         commandSeen: 0,
@@ -284,15 +286,25 @@ export class AgentManager {
       }
     }
 
-    // 发现敌人
+    // 发现敌人（中立高楼是掩体不是敌人，走统一判定剔除）
     let nearest = null, nd = Infinity;
+    let cover = null, cd = Infinity;
     const units = gameState.entities;
     for (let i = 0; i < units.length; i++) {
       const e = units[i];
-      if (e.dead || e.team === member.team) continue;
+      if (e.dead) continue;
       const dx = e.x - member.x, dy = e.y - member.y;
       const d = dx * dx + dy * dy;
+      if (e.aiIgnore) {
+        if (d < cd) { cd = d; cover = e; }
+        continue;
+      }
+      if (e.team === member.team) continue;
       if (d < nd) { nd = d; nearest = e; }
+    }
+    if (cover && cd <= 8 * 8 && agent.lastCoverId !== cover.id) {
+      agent.lastCoverId = cover.id;
+      agent.events.push('附近有' + cover.name + '，可贴到它背向来敌的一侧躲子弹（不要主动拆它）');
     }
     const nearDist = Math.sqrt(nd);
     if (nearest && nearDist <= CONTACT_RANGE) {

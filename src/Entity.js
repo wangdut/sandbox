@@ -59,6 +59,10 @@ export class Entity {
     this.attackMoveTarget = null;
     this.guardPos = null;
     this.autoGuard = false;   // 出厂单位：抵达集结点后自动转入守卫状态
+    // 中立高楼：aiIgnore = AI 永不主动选它为目标（只接受指挥官明令）；
+    // blocksFire = 遮挡己方与敌方的直射弹道，是可被利用的掩体
+    this.aiIgnore = (def && def.aiIgnore) || false;
+    this.blocksFire = (def && def.blocksFire) || false;
     this.power = (def && def.power) || 0;
     this.powerUse = (def && def.powerUse) || 0;
     this.requires = (def && def.requires) ? def.requires.slice() : [];
