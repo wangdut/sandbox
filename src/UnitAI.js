@@ -54,7 +54,7 @@ export function updateUnitAI(gameState, unit, frameCount) {
         unit.path = [];
         unit.pathIndex = 0;
       } else {
-        if (unit.team === TEAM_PLAYER) notify('\u5360\u9886\u4e86 ' + tgt.name + '\uff01', 'info');
+        if (unit.team === gameState.humanTeam) notify('\u5360\u9886\u4e86 ' + tgt.name + '\uff01', 'info');
         gameState.map.clearOccupancy(tgt);
         tgt.team = unit.team;
         // 占领会改变建筑归属，精炼厂缓存需失效并重算
@@ -213,11 +213,11 @@ export function updateUnitAI(gameState, unit, frameCount) {
       var cdx = (cl2.x + (cl2.isBuilding ? cl2.size / 2 : 0.5)) - (unit.x + 0.5),
           cdy = (cl2.y + (cl2.isBuilding ? cl2.size / 2 : 0.5)) - (unit.y + 0.5);
       if (cdx * cdx + cdy * cdy <= unit.range * unit.range) performAttack(gameState, unit, cl2);
-      // 只有 AI 会自动追出射程；玩家单位不擅自脱离玩家下达的移动命令
-      else if (unit.team === TEAM_ENEMY) unit.attackTarget = cl2;
+      // 只有电脑阵营会自动追出射程；上帝玩家的单位不擅自脱离玩家下达的移动命令
+      else if (unit.team !== gameState.humanTeam) unit.attackTarget = cl2;
     }
   }
-  if (unit.team === TEAM_ENEMY && unit.lastDamagedBy && !unit.lastDamagedBy.dead && unit.lastDamagedTimer > 0 && !unit.attackTarget) {
+  if (unit.team !== gameState.humanTeam && unit.lastDamagedBy && !unit.lastDamagedBy.dead && unit.lastDamagedTimer > 0 && !unit.attackTarget) {
     unit.attackTarget = unit.lastDamagedBy;
   }
   moveUnit(gameState, unit);
@@ -232,7 +232,7 @@ export function updateHarvesterAI(gameState, unit) {
     var refY = Math.floor(ref.y) + Math.floor(ref.size / 2);
     var refdx = unit.x - refX, refdy = unit.y - refY;
     if (refdx * refdx + refdy * refdy < 9) {
-      if (unit.team === TEAM_PLAYER) { gameState.playerCredits += unit.ore; gameState.stats.oreGathered += unit.ore; }
+      if (unit.team === gameState.humanTeam) { gameState.playerCredits += unit.ore; gameState.stats.oreGathered += unit.ore; }
       else gameState.enemyCredits += unit.ore;
       gameState.addFloatingText(ref.getCenterX(), ref.getCenterY() - 12, '+' + unit.ore, '#f1c40f');
       unit.ore = 0;
@@ -345,7 +345,7 @@ export function updateSpyInfiltration(gameState, unit) {
     var sdx = unit.x - (t.x + t.size / 2), sdy = unit.y - (t.y + t.size / 2);
     if (sdx * sdx + sdy * sdy > dist2) return;
 
-    var enemyIsPlayer = (t.team === TEAM_PLAYER);
+    var enemyIsPlayer = (t.team === gameState.humanTeam);
     var pool = enemyIsPlayer ? gameState.playerCredits : gameState.enemyCredits;
     var msg = '';
 
@@ -371,8 +371,8 @@ export function updateSpyInfiltration(gameState, unit) {
       msg = (t.type === 'refinery' ? '\u5077\u53d6\u8d44\u91d1 ' : '\u83b7\u53d6\u60c5\u62a5\uff0c\u7b79\u6b3e ') + '$' + stolen;
     }
 
-    notify((unit.team === TEAM_PLAYER ? '\u6e17\u900f\u6210\u529f\uff1a' : '\u8b66\u544a\uff1a') + msg,
-           unit.team === TEAM_PLAYER ? 'info' : 'danger');
+    notify((unit.team === gameState.humanTeam ? '\u6e17\u900f\u6210\u529f\uff1a' : '\u8b66\u544a\uff1a') + msg,
+           unit.team === gameState.humanTeam ? 'info' : 'danger');
     gameState.addFloatingText(t.getCenterX(), t.getCenterY() - 16, '\u6e17\u900f!', '#95a5a6');
     unit.dead = true;
     unit.deathTimer = 1;

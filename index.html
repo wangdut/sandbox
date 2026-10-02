@@ -12,18 +12,22 @@
 <div id="startScreen">
   <h1>VIRTUAL SANDBOX</h1>
   <h2>虚拟沙盘 · 红警风即时战术</h2>
-  <p class="sub">4 名虚拟成员 · 你指挥蓝方 2 名 · 摧毁红方指挥所即获胜</p>
+  <p class="sub">4 名虚拟成员 · 你指挥己方 2 名 · 摧毁对方指挥所即获胜</p>
   <div class="mode-container">
-    <div class="mode-card easy" onclick="startGame('蓝方')">
+    <div class="mode-card easy" onclick="startGame('blue')">
       <h3>蓝方 · 上帝玩家</h3>
-      <p>你指挥雷霆与寒鸦<br>先熟悉操作（键鼠直接指挥）<br>打字下令将在 M2 接入</p>
+      <p>指挥雷霆与寒鸦<br>电脑操控红方（烈焰 / 夜枭）<br>点击开始对局</p>
     </div>
-    <div class="mode-card hard" style="opacity:.55;cursor:default">
-      <h3>API 配置</h3>
-      <p>配置成员大脑的 DeepSeek Key<br>M2 里程碑接入<br>当前为脚本 AI</p>
+    <div class="mode-card normal" onclick="startGame('red')">
+      <h3>红方 · 上帝玩家</h3>
+      <p>指挥烈焰与夜枭<br>电脑操控蓝方（雷霆 / 寒鸦）<br>点击开始对局</p>
     </div>
+    <a class="mode-card config" href="config.html" target="_blank">
+      <h3>⚙ API 配置</h3>
+      <p>粘贴 DeepSeek Key<br>选择模型与预算<br>（新窗口打开）</p>
+    </a>
   </div>
-  <p class="start-hint">左键选择 &nbsp;·&nbsp; 右键移动/攻击 &nbsp;·&nbsp; W 切换武器（机枪/火箭筒） &nbsp;·&nbsp; 拖拽框选 &nbsp;·&nbsp; 摧毁对方指挥所</p>
+  <p class="start-hint">左键选择 &nbsp;·&nbsp; 右键移动/攻击 &nbsp;·&nbsp; W 切换武器 &nbsp;·&nbsp; 中键拖动视野 &nbsp;·&nbsp; 底部输入框打字下令 &nbsp;·&nbsp; 摧毁对方指挥所</p>
 </div>
 
 <div id="gameOver">
@@ -55,19 +59,25 @@
   </div>
   <div id="hqStatus">
     <div class="hq-bar blue">
-      <span class="hq-name">蓝方指挥所</span>
+      <span class="hq-name" id="hqBarBlueName">己方指挥所</span>
       <div class="hq-track"><i id="hqBarBlue"></i></div>
       <span class="hq-hp" id="hqHpBlue">1800</span>
     </div>
     <div class="hq-bar red">
-      <span class="hq-name">红方指挥所</span>
+      <span class="hq-name" id="hqBarRedName">敌方指挥所</span>
       <div class="hq-track"><i id="hqBarRed"></i></div>
       <span class="hq-hp" id="hqHpRed">1800</span>
     </div>
   </div>
   <span id="gameTime">00:00</span>
   <button id="pauseBtn" onclick="togglePause()">暂停</button>
-  <button id="speedBtn" onclick="cycleSpeed()">1×</button>
+  <div id="speedBox">
+    <input type="range" id="speedSlider" min="0" max="4" step="0.25" value="1" oninput="setGameSpeed(this.value)">
+    <span id="speedLabel">1×</span>
+  </div>
+  <button id="budgetBtn" onclick="addTokenBudget(50000)" title="本局 token 额度 +5 万，并立刻解除成员的降级状态">+5万额度</button>
+  <button id="endBtn" onclick="endGame()" title="结束本局并弹出结算">结束本局</button>
+  <button id="restartBtn" onclick="restartGame()" title="重新开始（整页重载）">重新开始</button>
   <button id="fullscreenBtn" onclick="toggleFullscreen()" title="全屏">⛶</button>
 </div>
 

@@ -29,6 +29,8 @@ export class GameState {
     this.playerUnitMax = 60;
     this.playerFaction = null;
     this.enemyFaction = null;
+    // 上帝玩家操控的队伍（0=蓝方 / 1=红方），由开局选择决定，不再写死 TEAM_PLAYER
+    this.humanTeam = 0;
     this.gameOver = false;
     this.winner = -1;
     this.hasRadar = false;
@@ -42,6 +44,9 @@ export class GameState {
     this.enemyPowerBlackout = 0;
     this._playExplosionSound = null;
     this.spatialGrid = new SpatialGrid(MAP_WIDTH, MAP_HEIGHT);
+    // 威胁网格（每队一张）：记录"进入敌方防御射程"的代价，供成员寻路绕开碉堡/炮塔。
+    // 没有它，A* 会挑最短路直接穿过防御火力，表现为"说要绕后却硬刚碉堡"
+    this.danger = [null, null];
     this.spatialDirty = true;
     this._playerBuildings = null;
     this._enemyBuildings = null;
@@ -55,22 +60,23 @@ export class GameState {
   }
 
   getPlayerBuildings() {
-    if (this._listDirty || !this._playerBuildings) this._playerBuildings = this.entities.filter(e => e.team === TEAM_PLAYER && e.isBuilding && !e.dead);
+    if (this._listDirty || !this._playerBuildings) this._playerBuildings = this.entities.filter(e => e.team === this.humanTeam && e.isBuilding && !e.dead);
     return this._playerBuildings;
   }
 
   getEnemyBuildings() {
-    if (this._listDirty || !this._enemyBuildings) this._enemyBuildings = this.entities.filter(e => e.team === TEAM_ENEMY && e.isBuilding && !e.dead);
+    if (this._listDirty || !this._enemyBuildings) this._enemyBuildings = this.entities.filter(e => e.team !== this.humanTeam && e.isBuilding && !e.dead);
     return this._enemyBuildings;
   }
 
   getPlayerUnits() {
-    if (this._listDirty || !this._playerUnits) this._playerUnits = this.entities.filter(e => e.team === TEAM_PLAYER && !e.isBuilding && !e.dead);
+    if (this._listDirty || !this._playerUnits) this._playerUnits = this.entities.filter(e => e.team === this.humanTeam && !e.isBuilding && !e.dead);
     return this._playerUnits;
   }
 
+  /** 电脑阵营（非上帝玩家）的单位 */
   getEnemyUnits() {
-    if (this._listDirty || !this._enemyUnits) this._enemyUnits = this.entities.filter(e => e.team === TEAM_ENEMY && !e.isBuilding && !e.dead);
+    if (this._listDirty || !this._enemyUnits) this._enemyUnits = this.entities.filter(e => e.team !== this.humanTeam && !e.isBuilding && !e.dead);
     return this._enemyUnits;
   }
 
@@ -99,6 +105,42 @@ export class GameState {
   /** 确保空间索引是最新的（低频调用点使用） */
   _ensureSpatial() {
     if (this.spatialDirty) { this.spatialGrid.update(this.entities); this.spatialDirty = false; }
+  }
+
+  /**
+   * 重建威胁网格：建筑被摧毁/新增后需重算（主循环每 30 帧调一次即可）
+   * 对每支队伍，把"敌方带武器的建筑"射程内格子标上 0.35~1.0 的危险度。
+   */
+  rebuildDanger() {
+    const N = MAP_WIDTH * MAP_HEIGHT;
+    for (let t = 0; t < 2; t++) {
+      if (!this.danger[t] || this.danger[t].length !== N) this.danger[t] = new Float32Array(N);
+      else this.danger[t].fill(0);
+    }
+    for (let i = 0; i < this.entities.length; i++) {
+      const e = this.entities[i];
+      if (e.dead || !e.isBuilding || !e.built) continue;
+      if (!e.damage || e.damage <= 0 || !e.range) continue;
+      const range = e.range + 1;
+      const cx = e.x + e.size / 2, cy = e.y + e.size / 2;
+      const x0 = Math.max(0, Math.floor(cx - range)), x1 = Math.min(MAP_WIDTH - 1, Math.ceil(cx + range));
+      const y0 = Math.max(0, Math.floor(cy - range)), y1 = Math.min(MAP_HEIGHT - 1, Math.ceil(cy + range));
+      for (let ty = y0; ty <= y1; ty++) {
+        for (let tx = x0; tx <= x1; tx++) {
+          const dx = tx + 0.5 - cx, dy = ty + 0.5 - cy;
+          const d = Math.sqrt(dx * dx + dy * dy);
+          if (d > range) continue;
+          const w = 0.35 + 0.65 * (1 - d / range);
+          const idx = ty * MAP_WIDTH + tx;
+          for (let t = 0; t < 2; t++) {
+            if (e.team === t) continue;             // 只对敌方构成威胁
+            if (this.danger[t][idx] < w) this.danger[t][idx] = w;
+          }
+        }
+      }
+    }
+    // 交给地图，让 findPath 在评估地形代价时直接读取
+    this.map.danger = this.danger;
   }
 
   /** 获取某支队伍所属阵营（用于单位/建筑的阵营限制） */
@@ -210,10 +252,11 @@ export class GameState {
   getEntitiesInRect(x1, y1, x2, y2) {
     this._ensureSpatial();
     const r = [];
+    const self = this;
     const loX = Math.min(x1, x2), hiX = Math.max(x1, x2);
     const loY = Math.min(y1, y2), hiY = Math.max(y1, y2);
     const hit = function (e) {
-      if (e.dead || e.team !== TEAM_PLAYER || e.isBuilding) return;
+      if (e.dead || e.team !== self.humanTeam || e.isBuilding) return;
       const ecx = e.getCenterX(), ecy = e.getCenterY();
       if (ecx >= loX && ecx <= hiX && ecy >= loY && ecy <= hiY) r.push(e);
     };

@@ -1,4 +1,4 @@
-import { TILE_SIZE, MAP_WIDTH, MAP_HEIGHT, TEAM_PLAYER, TEAM_ENEMY, GRASS, WATER, ORE, SAND, CONCRETE, TREE, FPS } from './constants.js';
+import { TILE_SIZE, MAP_WIDTH, MAP_HEIGHT, GRASS, WATER, ORE, SAND, CONCRETE, TREE, FPS } from './constants.js';
 import { BUILDING_DEFS, DEFENSE_DEFS, UNIT_DEFS } from './definitions.js';
 import { Entity } from './Entity.js';
 import { GameState } from './GameState.js';
@@ -11,9 +11,11 @@ import { MemberSystem } from './sandbox/memberSystem.js';
 import { MemberPanel } from './ui/MemberPanel.js';
 import { BudgetPanel } from './ui/BudgetPanel.js';
 import { ChatPanel } from './ui/ChatPanel.js';
-import { loadConfig } from './agents/config.js';
+import { loadConfig, saveConfig } from './agents/config.js';
 import { AgentManager } from './agents/AgentManager.js';
 import { CommandBus } from './core/commandBus.js';
+import { session, setHumanTeam } from './core/session.js';
+import { clampCameraToMap } from './core/camera.js';
 import { MEMBERS } from './sandbox/memberDefs.js';
 import { AudioManager, audioManager } from './AudioManager.js';
 import { SaveManager } from './SaveManager.js';
@@ -45,8 +47,10 @@ let notifTimer = 0;
 const SW_ACTIVE_PLAYER = new Set();
 const SW_ACTIVE_ENEMY = new Set();
 
-function startGame(diff) {
-  difficulty = diff;
+function startGame(side) {
+  // 上帝玩家可选阵营：'blue' / 'red'（默认蓝方）
+  setHumanTeam(side === 'red' ? 1 : 0);
+  difficulty = session.humanTeam === 0 ? '蓝方' : '红方';
   canvas = document.getElementById('gameCanvas');
   ctx = canvas.getContext('2d');
   minimapCanvas = document.getElementById('minimapCanvas');
@@ -57,16 +61,19 @@ function startGame(diff) {
   minimapCanvas.height = 200;
   Entity.counter = 0;
   gameState = new GameState();
+  gameState.humanTeam = session.humanTeam;
   gameState._playExplosionSound = function() { audioManager.playExplosion(); };
   // 沙盘固定布景（替代基座的随机地图 + 采集开局）
-  const scenario = buildSandboxScenario(gameState);
+  buildSandboxScenario(gameState, session.humanTeam);
   // 上帝视角：全图可见，便于观察 4 名成员的自主行为
   gameState.fogOfWar.enabled = false;
-  const spawn = scenario.spawn;
-  camera.x = (spawn.x + 1.5) * TILE_SIZE * camera.zoom - (canvas.width - 300) / 2;
-  camera.y = (spawn.y + 1.5) * TILE_SIZE * camera.zoom - canvas.height / 2;
-  camera.x = Math.max(0, camera.x);
-  camera.y = Math.max(0, camera.y);
+  // 开局把镜头对准"我方"指挥所
+  const ownHq = findHQ(gameState, session.humanTeam);
+  if (ownHq) {
+    camera.x = (ownHq.x + 1.5) * TILE_SIZE * camera.zoom - (canvas.width - 300) / 2;
+    camera.y = (ownHq.y + 1.5) * TILE_SIZE * camera.zoom - canvas.height / 2;
+  }
+  clampCamera();
   selectedUnits = [];
   selectedBuilding = null;
   placingBuilding = false;
@@ -78,6 +85,7 @@ function startGame(diff) {
   gameSpeed = 1;
   activeAction = null;
   notifTimer = 0;
+  setGameSpeed(1);   // 同步速度滑动条与标签
   document.getElementById('startScreen').style.display = 'none';
   document.getElementById('gameOver').style.display = 'none';
   renderer = new Renderer(canvas, minimapCanvas);
@@ -186,7 +194,7 @@ function startGame(diff) {
   ui.updateBuildList(gameState);
   // 开局自动选中己方两名成员，玩家可立即右键指挥
   memberSystem.liveMembers(gameState).forEach(function(u) {
-    if (u.team === TEAM_PLAYER) { u.selected = true; selectedUnits.push(u); }
+    if (u.team === gameState.humanTeam) { u.selected = true; selectedUnits.push(u); }
   });
   gameLoop();
 }
@@ -197,20 +205,20 @@ function wireSuperWeaponCallbacks(swm) {
     else if (type === 'chrono') audioManager.playChrono();
     else if (type === 'ironCurtain') audioManager.playIronCurtain();
     else if (type === 'lightningStorm') audioManager.playAlert();
-    if (team === TEAM_ENEMY) {
+    if (team !== gameState.humanTeam) {
       var swNames = { nuke: '核弹攻击', lightningStorm: '闪电风暴', ironCurtain: '铁幕装置', chrono: '超时空传送' };
       notify('警报: 敌方使用了 ' + (swNames[type] || '超级武器') + '！', 'danger');
       audioManager.playAlert();
     }
   };
   swm.onChronoPending = function(team) {
-    if (team === TEAM_PLAYER && input) {
+    if (team === gameState.humanTeam && input) {
       input._callbacks.superWeaponTargeting = '__chronoDest';
       notify('选择传送目的地', 'info');
     }
   };
   swm.onChronoExpired = function(team) {
-    if (team === TEAM_PLAYER && input && input._callbacks.superWeaponTargeting === '__chronoDest') {
+    if (team === gameState.humanTeam && input && input._callbacks.superWeaponTargeting === '__chronoDest') {
       input._callbacks.superWeaponTargeting = null;
       notify('传送超时取消', 'warn');
     }
@@ -220,6 +228,7 @@ function wireSuperWeaponCallbacks(swm) {
 // 固定步长主循环用：把「帧」与真实时间对齐
 const FRAME_MS = 1000 / FPS;
 const MAX_STEPS_PER_RAF = 8;   // 单次 rAF 最多补多少帧，避免切后台回来一次性狂算
+const CHAT_PANEL_HEIGHT = 152; // 底部命令栏高度：相机可视区与边缘滚动都要扣掉它
 let lastFrameTime = 0;
 let accumulator = 0;
 
@@ -280,32 +289,37 @@ function gameLoop(timestamp) {
 }
 
 function updateCamera() {
-  var speed = 12;
+  var speed = 16;
   var keys = input ? input.keys : {};
   if (keys['ArrowLeft']) camera.x -= speed;
   if (keys['ArrowRight']) camera.x += speed;
   if (keys['ArrowUp']) camera.y -= speed;
   if (keys['ArrowDown']) camera.y += speed;
-  var edge = 14;
+  // 边缘滚动的判定区要避开底部聊天栏与右侧栏，否则鼠标根本到不了那条边
+  var edge = 26;
   var viewW = canvas.width - 300;
-  var viewH = canvas.height;
+  var viewH = canvas.height - CHAT_PANEL_HEIGHT;
   var mouse = input ? input.mouse : { inCanvas: false, x: 0, y: 0 };
   if (mouse.inCanvas) {
-    if (mouse.x > 0 && mouse.x < edge && mouse.y > 44 && mouse.y < viewH) camera.x -= 10;
-    if (mouse.x > viewW - edge && mouse.x < viewW && mouse.y > 44 && mouse.y < viewH) camera.x += 10;
-    if (mouse.y > 44 && mouse.y < 44 + edge && mouse.x > 0 && mouse.x < viewW) camera.y -= 10;
-    if (mouse.y > viewH - edge && mouse.y < viewH && mouse.x > 0 && mouse.x < viewW) camera.y += 10;
+    if (mouse.x > 0 && mouse.x < edge && mouse.y > 44 && mouse.y < viewH) camera.x -= 14;
+    if (mouse.x > viewW - edge && mouse.x < viewW && mouse.y > 44 && mouse.y < viewH) camera.x += 14;
+    if (mouse.y > 44 && mouse.y < 44 + edge && mouse.x > 0 && mouse.x < viewW) camera.y -= 14;
+    if (mouse.y > viewH - edge && mouse.y < viewH && mouse.x > 0 && mouse.x < viewW) camera.y += 14;
   }
-  var maxX = MAP_WIDTH * TILE_SIZE * camera.zoom - (canvas.width - 300);
-  var maxY = MAP_HEIGHT * TILE_SIZE * camera.zoom - canvas.height;
-  camera.x = Math.max(0, Math.min(maxX, camera.x));
-  camera.y = Math.max(0, Math.min(maxY, camera.y));
+  clampCamera();
+}
+
+/** 相机夹取（含"地图比视口小则居中"），统一入口避免各处写不同的夹取逻辑 */
+function clampCamera() {
+  clampCameraToMap(camera, canvas.width - 300, canvas.height - CHAT_PANEL_HEIGHT);
 }
 
 function updateEntities() {
   // 空间网格每3帧重建一次即可，范围查询不需要每帧精确
   if (frameCount % 3 === 0) gameState.spatialDirty = true;
   gameState._listDirty = false;
+  // 威胁网格：建筑增减后需要重算，30 帧（0.5 秒）一次足够
+  if (frameCount % 30 === 0) gameState.rebuildDanger();
   // 重置本帧寻路预算：大量单位同帧重算路径时压缩单次迭代上限，平滑掉帧尖峰
   gameState.map.resetPathBudget();
   
@@ -337,7 +351,7 @@ function updateEntities() {
       updateBuildingAI(gameState, e);
     } else {
       if (e.fireCooldown > 0) e.fireCooldown--;
-      if (e.team !== TEAM_ENEMY) updateUnitAI(gameState, e);
+      if (e.team === gameState.humanTeam) updateUnitAI(gameState, e);
     }
   }
   updateRepairBays(gameState, frameCount);
@@ -366,16 +380,16 @@ function updateResources() {
     var e = gameState.entities[i];
     if (e.dead || !e.built) continue;
     if (e.isBuilding) {
-      if (e.team === TEAM_PLAYER) { pp += e.power || 0; ppU += e.powerUse || 0; }
+      if (e.team === gameState.humanTeam) { pp += e.power || 0; ppU += e.powerUse || 0; }
       else { ep += e.power || 0; epU += e.powerUse || 0; }
       // 注册超级武器（建成即计时，覆盖建造/读档/占领三种来源）
       var bdef = BUILDING_DEFS[e.type];
       if (bdef && bdef.superWeapon) {
         gameState.superWeaponManager.addSuperWeapon(bdef.superWeapon, e.team);
-        if (e.team === TEAM_PLAYER) SW_ACTIVE_PLAYER.add(bdef.superWeapon);
+        if (e.team === gameState.humanTeam) SW_ACTIVE_PLAYER.add(bdef.superWeapon);
         else SW_ACTIVE_ENEMY.add(bdef.superWeapon);
       }
-    } else if (e.team === TEAM_PLAYER) uc++;
+    } else if (e.team === gameState.humanTeam) uc++;
   }
   // 以存活建筑为准反向注销：发射井被拆后核弹不能继续充能
   gameState.superWeaponManager.syncActive(SW_ACTIVE_PLAYER, SW_ACTIVE_ENEMY);
@@ -387,8 +401,8 @@ function updateResources() {
   gameState.enemyPower = ep;
   gameState.enemyPowerUse = epU;
   gameState.playerUnitCount = uc;
-  gameState.hasRadar = gameState.hasBuilding(TEAM_PLAYER, 'radar');
-  gameState.hasTechCenter = gameState.hasBuilding(TEAM_PLAYER, 'alliedTech') || gameState.hasBuilding(TEAM_PLAYER, 'sovietTech');
+  gameState.hasRadar = gameState.hasBuilding(gameState.humanTeam, 'radar');
+  gameState.hasTechCenter = gameState.hasBuilding(gameState.humanTeam, 'alliedTech') || gameState.hasBuilding(gameState.humanTeam, 'sovietTech');
   if (gameState.playerPower < gameState.playerPowerUse && gameState.lowPowerAlertCooldown === 0) {
     notify('\u8b66\u544a: \u7535\u529b\u4e0d\u8db3\uff01', 'warn');
     audioManager.playAlert();
@@ -401,7 +415,7 @@ function updateResources() {
  */
 function sendGodCommand(text) {
   if (!commandBus || !agentManager) return;
-  const cmd = commandBus.sendCommand({ team: TEAM_PLAYER, type: 'text', text: text });
+  const cmd = commandBus.sendCommand({ team: gameState.humanTeam, type: 'text', text: text });
   if (!cmd) return;
   chatPanel.addSystem('【你 → 蓝方】' + text);
   if (!agentManager.llmReady) {
@@ -416,9 +430,9 @@ function sendQuickCommand(kind) {
   if (!commandBus || !agentManager) return;
   const LABELS = { allAttack: '总攻', retreat: '撤退', defend: '回防', regroup: '集合' };
   const label = LABELS[kind] || kind;
-  commandBus.sendCommand({ team: TEAM_PLAYER, type: 'quick', kind: kind, text: '【' + label + '】', queue: false });
+  commandBus.sendCommand({ team: gameState.humanTeam, type: 'quick', kind: kind, text: '【' + label + '】', queue: false });
   chatPanel.addSystem('【你 → 蓝方】' + label + '（快捷命令，不消耗 token）');
-  const n = agentManager.applyQuickCommand(gameState, TEAM_PLAYER, kind);
+  const n = agentManager.applyQuickCommand(gameState, gameState.humanTeam, kind);
   if (n === 0) chatPanel.addSystem('（当前没有可用成员，可能在等待重生）');
 }
 
@@ -426,10 +440,10 @@ function sendQuickCommand(kind) {
 function updateHud() {
   if (!gameState) return;
   // 顶部：双方指挥所血量（沙盘的胜负目标，必须一眼可见）
-  const blueHq = findHQ(gameState, TEAM_PLAYER);
-  const redHq = findHQ(gameState, TEAM_ENEMY);
-  setHqBar('hqBarBlue', 'hqHpBlue', blueHq);
-  setHqBar('hqBarRed', 'hqHpRed', redHq);
+  const ownHq = findHQ(gameState, session.humanTeam);
+  const aiHq = findHQ(gameState, session.aiTeam);
+  setHqBar('hqBarBlue', 'hqHpBlue', ownHq, '己方指挥所');
+  setHqBar('hqBarRed', 'hqHpRed', aiHq, '敌方指挥所');
 
   if (!agentManager) return;
   const s = agentManager.stats();
@@ -446,10 +460,12 @@ function updateHud() {
   }
 }
 
-function setHqBar(barId, hpId, hq) {
+function setHqBar(barId, hpId, hq, label) {
   const bar = document.getElementById(barId);
   const hpEl = document.getElementById(hpId);
   if (!bar || !hpEl) return;
+  const nameEl = document.getElementById(barId + 'Name');
+  if (nameEl && label && nameEl.textContent !== label) nameEl.textContent = label;
   if (!hq) {
     if (bar.style.width !== '0%') { bar.style.width = '0%'; }
     if (hpEl.textContent !== '已失守') hpEl.textContent = '已失守';
@@ -487,7 +503,7 @@ function toggleSelectedWeapon() {
 function startBuild(type, team) {
   var def = BUILDING_DEFS[type] || DEFENSE_DEFS[type] || UNIT_DEFS[type];
   if (!def) return;
-  if (team === TEAM_PLAYER && !gameState.canBuild(type, team)) {
+  if (team === gameState.humanTeam && !gameState.canBuild(type, team)) {
     var reason = gameState.getBuildReason(type, team);
     notify(reason, 'warn');
     audioManager.playCancel();
@@ -499,15 +515,15 @@ function startBuild(type, team) {
     if (!pb) { notify('\u6ca1\u6709\u53ef\u7528\u7684\u751f\u4ea7\u5efa\u7b51', 'warn'); return; }
     if (pb.producing) {
       if (pb.productionQueue.length < 5) {
-        if (team === TEAM_PLAYER) gameState.playerCredits -= def.cost;
+        if (team === gameState.humanTeam) gameState.playerCredits -= def.cost;
         else gameState.enemyCredits -= def.cost;
         pb.productionQueue.push(type);
-        if (team === TEAM_PLAYER) notify(def.name + ' \u5df2\u52a0\u5165\u961f\u5217 (' + pb.productionQueue.length + ')', 'info');
-      } else if (team === TEAM_PLAYER) notify('\u751f\u4ea7\u961f\u5217\u5df2\u6ee1', 'warn');
+        if (team === gameState.humanTeam) notify(def.name + ' \u5df2\u52a0\u5165\u961f\u5217 (' + pb.productionQueue.length + ')', 'info');
+      } else if (team === gameState.humanTeam) notify('\u751f\u4ea7\u961f\u5217\u5df2\u6ee1', 'warn');
       return;
     }
-    if (team === TEAM_PLAYER) { gameState.playerCredits -= def.cost; pb.producing = type; pb.produceProgress = 0; notify('\u5f00\u59cb\u8bad\u7ec3 ' + def.name, 'info'); }
-  } else if (team === TEAM_PLAYER) {
+    if (team === gameState.humanTeam) { gameState.playerCredits -= def.cost; pb.producing = type; pb.produceProgress = 0; notify('\u5f00\u59cb\u8bad\u7ec3 ' + def.name, 'info'); }
+  } else if (team === gameState.humanTeam) {
     if (input) {
       input._callbacks.placingBuilding = true;
       input._callbacks.placingType = type;
@@ -552,14 +568,14 @@ function fireSuperWeapon(type, mapX, mapY) {
   var swm = gameState.superWeaponManager;
   if (input) input._callbacks.superWeaponTargeting = null;
   if (type === '__chronoDest') {
-    var pending = swm.getPendingChrono(TEAM_PLAYER);
+    var pending = swm.getPendingChrono(gameState.humanTeam);
     if (pending) {
       swm.completeChronoShift(pending, mapX, mapY);
       notify('\u8d85\u65f6\u7a7a\u4f20\u9001\u5b8c\u6210', 'info');
     }
     return;
   }
-  if (swm.useSuperWeapon(type, TEAM_PLAYER, mapX, mapY)) {
+  if (swm.useSuperWeapon(type, gameState.humanTeam, mapX, mapY)) {
     notify('\u8d85\u7ea7\u6b66\u5668\u5df2\u53d1\u52a8', 'info');
   } else {
     notify('\u76ee\u6807\u65e0\u6548\uff0c\u8bf7\u91cd\u65b0\u9009\u62e9', 'warn');
@@ -601,10 +617,57 @@ function togglePause() {
   if (gamePaused) notify('\u6e38\u620f\u5df2\u6682\u505c', 'info');
 }
 
-function cycleSpeed() {
-  gameSpeed = gameSpeed === 1 ? 2 : (gameSpeed === 2 ? 4 : 1);
-  document.getElementById('speedBtn').textContent = gameSpeed + '\u00d7';
-  notify('\u6e38\u620f\u901f\u5ea6: ' + gameSpeed + '\u00d7', 'info');
+/**
+ * 设置游戏速度：0 = 暂停，其余按倍率推进（滑动条 0–4×）
+ */
+function setGameSpeed(v) {
+  const val = Number(v);
+  gameSpeed = Number.isFinite(val) ? Math.max(0, Math.min(4, val)) : 1;
+  const label = document.getElementById('speedLabel');
+  if (label) label.textContent = gameSpeed === 0 ? '暂停' : gameSpeed.toFixed(2).replace(/0$/, '') + '×';
+  const slider = document.getElementById('speedSlider');
+  if (slider && Number(slider.value) !== gameSpeed) slider.value = String(gameSpeed);
+  // 速度为 0 时也要把暂停按钮状态同步，避免出现"没暂停但不动"的困惑
+  if (gameSpeed === 0 && !gamePaused) {
+    gamePaused = true;
+    const btn = document.getElementById('pauseBtn');
+    if (btn) { btn.textContent = '继续'; btn.classList.add('paused'); }
+  }
+}
+
+/**
+ * 追加本局 token 额度（默认 +5 万）并立刻解除超限降级
+ * —— 激战正酣时被降级最扫兴，所以要能一键续上
+ */
+function addTokenBudget(amount) {
+  if (!sandboxConfig || !agentManager) return;
+  const step = amount || 50000;
+  const newCap = (sandboxConfig.budget.maxTokensPerGame || 0) + step;
+  sandboxConfig.budget.maxTokensPerGame = newCap;
+  saveConfig(sandboxConfig);            // 持久化，刷新后不回到旧额度
+  const resumed = agentManager.setBudgetCap(newCap);
+  const wan = Math.round(step / 10000);
+  notify('已追加 ' + wan + ' 万 token 额度（本局上限 ' + Math.round(newCap / 10000) + ' 万）' +
+    (resumed ? '，成员恢复思考' : ''), 'info');
+  if (chatPanel) {
+    chatPanel.addSystem('【系统】额度 +' + wan + ' 万 → 本局上限 ' + Math.round(newCap / 10000) + ' 万' +
+      (resumed ? '，成员已恢复 LLM 决策' : ''));
+  }
+  updateHud();
+}
+
+/** 结束本局：停止推进并弹出结算（保留战报，方便回看本局消耗） */
+function endGame() {
+  if (!gameState || !gameRunning) return;
+  gameState.winner = -1;
+  gameState.gameOver = true;
+  if (agentManager) agentManager.abortGame();
+  notify('本局已结束', 'info');
+}
+
+/** 重新开始：整页重载（最稳的复位方式，配置与额度都会按最新值重读） */
+function restartGame() {
+  location.reload();
 }
 
 function toggleFullscreen() {
@@ -740,7 +803,10 @@ function loadGame() {
 
 window.startGame = startGame;
 window.togglePause = togglePause;
-window.cycleSpeed = cycleSpeed;
+window.setGameSpeed = setGameSpeed;
+window.addTokenBudget = addTokenBudget;
+window.endGame = endGame;
+window.restartGame = restartGame;
 window.toggleFullscreen = toggleFullscreen;
 window.showHelp = showHelp;
 window.hideHelp = hideHelp;

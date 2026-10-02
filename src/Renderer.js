@@ -210,7 +210,7 @@ export class Renderer {
       if (ex + eS < camera.x / zoom || ey2 + eS < camera.y / zoom || ex > camera.x / zoom + viewWidth / zoom || ey2 > camera.y / zoom + viewHeight / zoom) continue;
       
       // 战争迷雾：敌方单位在迷雾中不可见
-      if (gameState.fogOfWar && e.team !== TEAM_PLAYER) {
+      if (gameState.fogOfWar && e.team !== gameState.humanTeam) {
         var centerX = Math.floor(e.x + (e.isBuilding ? e.size / 2 : 0.5));
         var centerY = Math.floor(e.y + (e.isBuilding ? e.size / 2 : 0.5));
         if (!gameState.fogOfWar.isVisible(centerX, centerY)) continue;
@@ -481,7 +481,7 @@ export class Renderer {
         var pgx = mouse.mapX * TILE_SIZE;
         var pgy = mouse.mapY * TILE_SIZE;
         var canPlace = gameState.map.isBuildable(mouse.mapX, mouse.mapY, pd2.size) &&
-                       gameState.map.isNearBuilding(mouse.mapX, mouse.mapY, pd2.size, TEAM_PLAYER);
+                       gameState.map.isNearBuilding(mouse.mapX, mouse.mapY, pd2.size, gameState.humanTeam);
         ctx.globalAlpha = 0.5;
         ctx.fillStyle = canPlace ? '#2ecc71' : '#e74c3c';
         ctx.fillRect(pgx, pgy, pS, pS);
@@ -625,7 +625,7 @@ export class Renderer {
       if (e.dead) continue;
       
       // 战争迷雾：小地图上敌方单位只在有视野时显示
-      if (gameState.fogOfWar && e.team !== TEAM_PLAYER) {
+      if (gameState.fogOfWar && e.team !== gameState.humanTeam) {
         var eCenterX = Math.floor(e.x + (e.isBuilding ? e.size / 2 : 0.5));
         var eCenterY = Math.floor(e.y + (e.isBuilding ? e.size / 2 : 0.5));
         if (!gameState.fogOfWar.isVisible(eCenterX, eCenterY)) continue;

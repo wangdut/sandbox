@@ -4,6 +4,7 @@
 
 import { TEAM_NAMES, TEAM_PLAYER } from '../constants.js';
 import { WEAPONS } from '../sandbox/memberDefs.js';
+import { session } from '../core/session.js';
 import { escapeHtml } from './escape.js';
 
 export class MemberPanel {
@@ -26,7 +27,9 @@ export class MemberPanel {
   update(gameState, memberSystem, agentStats) {
     if (!this._dom || !this._dom.list || !memberSystem) return;
     const slots = memberSystem.slotStatus().slice().sort(function (a, b) {
-      return a.spec.team - b.spec.team; // 蓝方在前
+      // 己方排在前面（玩家可选阵营，所以按 session.humanTeam 而不是固定 0/1）
+      if (a.spec.team === b.spec.team) return 0;
+      return a.spec.team === session.humanTeam ? -1 : 1;
     });
     const byKey = {};
     if (agentStats && agentStats.perMember) {
@@ -38,18 +41,19 @@ export class MemberPanel {
       const a = byKey[s.spec.key] || {};
       sig += s.spec.key + '|' + (s.alive ? Math.ceil(s.entity.hp) + s.entity.weaponMode : 'dead' + s.respawnLeftSec) +
         '|' + (a.intent || '') + '|' + (a.lastSay || '') + '|' + Math.round((a.tokens || 0) / 100) + '|' + (a.calls || 0) +
-        '|' + (a.inFlight ? 1 : 0) + '|' + (a.degraded ? 1 : 0) + ';';
+        '|' + (a.inFlight ? 1 : 0) + '|' + (a.degraded ? 1 : 0) + '|' + (a.actionBlocked ? 1 : 0) + ';';
     });
     if (sig === this._sig) return;
     this._sig = sig;
 
+    const humanTeam = session.humanTeam;
     const html = slots.map(function (s) {
       const spec = s.spec;
       const a = byKey[spec.key] || {};
-      const isBlue = spec.team === TEAM_PLAYER;
-      const cls = (isBlue ? 'blue' : 'red') + (s.alive ? '' : ' dead');
-      const sideLabel = isBlue ? '你指挥' : '电脑';
-      const avatar = '<div class="mp-avatar ' + (isBlue ? 'blue' : 'red') + '">' + escapeHtml(spec.name.charAt(0)) + '</div>';
+      const isHuman = spec.team === humanTeam;
+      const cls = (isHuman ? 'blue' : 'red') + (s.alive ? '' : ' dead');
+      const sideLabel = isHuman ? '你指挥' : '电脑';
+      const avatar = '<div class="mp-avatar ' + (isHuman ? 'blue' : 'red') + '">' + escapeHtml(spec.name.charAt(0)) + '</div>';
 
       if (!s.alive) {
         return '<div class="mp-card ' + cls + '">' +
@@ -65,7 +69,7 @@ export class MemberPanel {
       const pct = Math.max(0, Math.round(u.hp / u.maxHp * 100));
       const w = WEAPONS[u.weaponMode] || WEAPONS.mg;
       const barColor = pct > 60 ? '#2ecc71' : (pct > 30 ? '#f1c40f' : '#e74c3c');
-      const stateLabel = a.degraded ? '脚本模式' : (a.inFlight ? '思考中…' : '在线');
+      const stateLabel = a.degraded ? '脚本模式' : (a.inFlight ? '思考中…' : (a.actionBlocked ? '行动受阻' : '在线'));
       const tokens = a.tokens ? (a.tokens >= 1000 ? (a.tokens / 1000).toFixed(1) + 'k' : String(a.tokens)) : '0';
 
       return '<div class="mp-card ' + cls + '">' +
@@ -78,6 +82,7 @@ export class MemberPanel {
         '<div class="mp-meta">' + w.icon + ' ' + w.name + ' · ' + stateLabel + ' · ' + tokens + ' tok</div>' +
         (a.intent ? '<div class="mp-intent">意图：' + escapeHtml(a.intent) + '</div>' : '') +
         (a.lastSay ? '<div class="mp-say">「' + escapeHtml(a.lastSay) + '」</div>' : '') +
+        (a.actionBlocked ? '<div class="mp-state">上次行动未落实，正在重新判断</div>' : '') +
         '</div></div>';
     }).join('');
 

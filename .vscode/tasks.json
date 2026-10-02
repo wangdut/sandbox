@@ -1,0 +1,32 @@
+{
+  "version": "2.0.0",
+  "tasks": [
+    {
+      "label": "启动沙盘服务（http://localhost:8788）",
+      "detail": "静态页面 + /api/llm 转发代理，游戏运行必需",
+      "type": "shell",
+      "command": "npm start",
+      "isBackground": true,
+      "problemMatcher": [],
+      "group": { "kind": "build", "isDefault": true },
+      "presentation": { "reveal": "always", "panel": "dedicated" }
+    },
+    {
+      "label": "启动 mock LLM 端点（8899，零 token 试玩用）",
+      "detail": "不调用真实 API 的本地假模型，把配置页的 API 地址填成 http://localhost:8899/v1 即可",
+      "type": "shell",
+      "command": "npm run mock",
+      "isBackground": true,
+      "problemMatcher": [],
+      "presentation": { "reveal": "always", "panel": "dedicated" }
+    },
+    {
+      "label": "运行断言测试（零 API 成本）",
+      "detail": "51 项纯逻辑断言：喊话冷却、决策解析、命令分发、兜底 AI 等",
+      "type": "shell",
+      "command": "npm test",
+      "problemMatcher": [],
+      "presentation": { "reveal": "always", "panel": "dedicated" }
+    }
+  ]
+}

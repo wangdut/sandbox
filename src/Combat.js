@@ -77,7 +77,7 @@ export function performAttack(gameState, attacker, target) {
   
   target.lastDamagedBy = attacker;
   target.lastDamagedTimer = 180;
-  if (target.team === TEAM_PLAYER && target.isBuilding && gameState.underAttackAlertCooldown === 0) {
+  if (target.team === gameState.humanTeam && target.isBuilding && gameState.underAttackAlertCooldown === 0) {
     notify('\u8b66\u544a: \u57fa\u5730\u906d\u5230\u653b\u51fb\uff01', 'danger');
     audioManager.playAlert();
     gameState.addMinimapAlert(target.x, target.y, '#e74c3c');

@@ -11,6 +11,14 @@ const MIN_ITER_PER_CALL = 256;
 const UNREACHABLE_MAX_ITER = 600;
 // 二叉堆初始容量（惰性删除会重复入堆，需大于格子总数）
 const HEAP_INIT_CAP = 8192;
+// 威胁代价权重：越大越"惜命"，会为了绕开射程走更远的路
+const DANGER_WEIGHT = 5;
+// 八方向距离启发：允许斜走时曼哈顿距离会高估真实代价（2 vs 1.414），
+// 高估的启发式会剪掉"绕行"分支，导致成员明知有炮塔还直着走
+function octile(dx, dy) {
+  const a = dx < 0 ? -dx : dx, b = dy < 0 ? -dy : dy;
+  return a > b ? a + 0.414 * b : b + 0.414 * a;
+}
 
 export class GameMap {
   constructor() {
@@ -26,6 +34,8 @@ export class GameMap {
     this.pathBudgetNodes = 9000;
     this._pfPathsUsed = 0;
     this._pfNodesUsed = 0;
+    // 威胁网格（每队一张 Float32Array），由 GameState.rebuildDanger() 注入
+    this.danger = null;
   }
 
   /**
@@ -308,10 +318,13 @@ export class GameMap {
     const gScore = this._pfG, from = this._pfFrom, gStamp = this._pfGStamp,
           closedStamp = this._pfClosedStamp;
     const gen = ++this._pfGen;
+    // 本次寻路是否要考虑威胁代价（成员默认开启，让"绕后"真的绕开防御）
+    const dangerGrid = (requester && requester.avoidDanger && this.danger)
+      ? this.danger[requester.team] : null;
 
     gScore[startIdx] = 0;
     gStamp[startIdx] = gen;
-    const startH = Math.abs(ex - sx) + Math.abs(ey - sy);
+    const startH = octile(ex - sx, ey - sy);
     this._pfHeapSize = 0;
     this._pfPush(startIdx, startH);
 
@@ -324,11 +337,11 @@ export class GameMap {
       if (closedStamp[ci] === gen) continue; // 惰性删除：旧副本出堆时跳过
       closedStamp[ci] = gen;
       const cx = ci % W, cy = (ci / W) | 0;
-      const ch = Math.abs(ex - cx) + Math.abs(ey - cy);
+      const ch = octile(ex - cx, ey - cy);
       if (ch < closestH) { closestH = ch; closestIdx = ci; }
       if (cx === ex && cy === ey) {
         if (!exempt) this._pfNodesUsed += itr;
-        return this._reconstructPath(from, gStamp, gen, startIdx, ci);
+        return this._reconstructPath(from, gStamp, gen, startIdx, ci, requester);
       }
       const cg = gScore[ci];
       for (let d = 0; d < 8; d++) {
@@ -352,6 +365,12 @@ export class GameMap {
         else if (terrain === CONCRETE) moveCost *= 0.9;
         else if (terrain === TREE) moveCost *= 1.5;
 
+        // 威胁代价：成员（avoidDanger）会主动绕开敌方碉堡/炮塔的射程
+        if (dangerGrid) {
+          const dv = dangerGrid[ni];
+          if (dv > 0) moveCost += DANGER_WEIGHT * dv;
+        }
+
         // 避免拥挤
         const occ = this.occupancy[ny][nx];
         if (occ && occ !== requester && !occ.isBuilding) moveCost *= 2;
@@ -361,7 +380,8 @@ export class GameMap {
           gScore[ni] = tg;
           gStamp[ni] = gen;
           from[ni] = ci;
-          const h = Math.abs(ex - nx) + Math.abs(ey - ny);
+          // 启发式里加入该格的威胁量，把身处火力覆盖的节点往后排，绕行才走得通
+          const h = octile(ex - nx, ey - ny) + (dangerGrid ? DANGER_WEIGHT * dangerGrid[ni] : 0);
           this._pfPush(ni, tg + h);
         }
       }
@@ -370,7 +390,7 @@ export class GameMap {
 
     // 不可达：返回到距目标最近点的路径
     if (closestH < startH) {
-      return this._reconstructPath(from, gStamp, gen, startIdx, closestIdx);
+      return this._reconstructPath(from, gStamp, gen, startIdx, closestIdx, requester);
     }
     return [];
   }
@@ -427,7 +447,7 @@ export class GameMap {
   /**
    * 由 from 数组回溯路径（仅回溯本次 generation 写过的节点）
    */
-  _reconstructPath(from, gStamp, gen, startIdx, endIdx) {
+  _reconstructPath(from, gStamp, gen, startIdx, endIdx, requester) {
     const path = [];
     let i = endIdx;
     let guard = 0;
@@ -436,7 +456,7 @@ export class GameMap {
       i = from[i];
     }
     path.reverse();
-    return this.smoothPath(path);
+    return this.smoothPath(path, requester);
   }
 
   /**
@@ -462,8 +482,11 @@ export class GameMap {
   /**
    * 路径平滑 - 移除不必要的中间点
    */
-  smoothPath(path) {
+  smoothPath(path, requester) {
     if (path.length < 3) return path;
+    // 规避威胁的寻路（成员）不能直线抄近道穿过火力覆盖区，否则绕行等于白绕
+    const dangerGrid = (requester && requester.avoidDanger && this.danger)
+      ? this.danger[requester.team] : null;
     
     const smoothed = [path[0]];
     let i = 0;
@@ -472,16 +495,33 @@ export class GameMap {
       // 尝试找到可以直接到达的最远点
       let furthest = i + 1;
       for (let j = path.length - 1; j > i + 1; j--) {
-        if (this.hasLineOfSight(path[i].x, path[i].y, path[j].x, path[j].y)) {
-          furthest = j;
-          break;
-        }
+        if (!this.hasLineOfSight(path[i].x, path[i].y, path[j].x, path[j].y)) continue;
+        if (dangerGrid && this._dangerAlongLine(path[i].x, path[i].y, path[j].x, path[j].y, dangerGrid, 0.55)) continue;
+        furthest = j;
+        break;
       }
       smoothed.push(path[furthest]);
       i = furthest;
     }
     
     return smoothed;
+  }
+
+  /** 直线是否穿过高威胁区（路径平滑时的安全校验） */
+  _dangerAlongLine(x0, y0, x1, y1, dangerGrid, threshold) {
+    const dx = Math.abs(x1 - x0), dy = Math.abs(y1 - y0);
+    const sx = x0 < x1 ? 1 : -1, sy = y0 < y1 ? 1 : -1;
+    let err = dx - dy;
+    let x = x0, y = y0;
+    let guard = 0;
+    while ((x !== x1 || y !== y1) && guard++ < MAP_WIDTH * MAP_HEIGHT) {
+      const idx = y * MAP_WIDTH + x;
+      if (idx >= 0 && idx < dangerGrid.length && dangerGrid[idx] > threshold) return true;
+      const e2 = 2 * err;
+      if (e2 > -dy) { err -= dy; x += sx; }
+      if (e2 < dx) { err += dx; y += sy; }
+    }
+    return false;
   }
 
   /**

@@ -4,8 +4,13 @@
 // 代理模式下 Key 经本机 serve.mjs 转发（不经第三方）。
 
 export const CONFIG_KEY = 'vsandbox.config.v1';
+// 配置结构版本：用于把老存档里的"当时默认值"升级成新默认值
+export const CONFIG_SCHEMA = 2;
+// 老版本默认的每局 token 上限；存档里等于它即视为用户没自定义过
+const LEGACY_TOKEN_CAP = 80000;
 
 export const DEFAULT_CONFIG = {
+  schemaVersion: CONFIG_SCHEMA,
   // ---- 接口 ----
   baseUrl: 'https://api.deepseek.com',
   apiKey: '',
@@ -31,7 +36,7 @@ export const DEFAULT_CONFIG = {
     chatCooldownSec: 30,      // 喊话（对队友/敌方）的最小间隔
     idleIntervalSec: 12,      // 无战事时的自主决策节拍
     maxCallsPerMinute: 30,    // 全局每分钟调用上限
-    maxTokensPerGame: 80000,  // 全局每局 token 上限（超出后降级为脚本 AI）
+    maxTokensPerGame: 200000, // 全局每局 token 上限（超出后降级为脚本 AI）
   },
 };
 
@@ -50,11 +55,24 @@ function deepMerge(base, override) {
   return out;
 }
 
+/**
+ * 老存档迁移（纯函数，便于单测）：把"当时默认值"升级为新默认值，
+ * 避免改了默认值对已经玩过的用户不生效
+ */
+export function migrateConfig(saved) {
+  const out = saved && typeof saved === 'object' ? saved : {};
+  if ((out.schemaVersion || 1) < 2 && out.budget && out.budget.maxTokensPerGame === LEGACY_TOKEN_CAP) {
+    out.budget = Object.assign({}, out.budget, { maxTokensPerGame: DEFAULT_CONFIG.budget.maxTokensPerGame });
+  }
+  out.schemaVersion = CONFIG_SCHEMA;
+  return out;
+}
+
 export function loadConfig() {
   try {
     const raw = localStorage.getItem(CONFIG_KEY);
     if (!raw) return deepMerge(DEFAULT_CONFIG, {});
-    return deepMerge(DEFAULT_CONFIG, JSON.parse(raw));
+    return deepMerge(DEFAULT_CONFIG, migrateConfig(JSON.parse(raw)));
   } catch (e) {
     console.warn('[config] 读取配置失败，使用默认值', e);
     return deepMerge(DEFAULT_CONFIG, {});

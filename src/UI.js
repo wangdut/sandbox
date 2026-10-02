@@ -67,7 +67,7 @@ export class UIManager {
     var self = this;
     var list = this._dom.buildList;
     var defs = this.currentTab === 'buildings' ? BUILDING_DEFS : (this.currentTab === 'defenses' ? DEFENSE_DEFS : UNIT_DEFS);
-    var myFaction = gameState.getFaction(TEAM_PLAYER);
+    var myFaction = gameState.getFaction(gameState.humanTeam);
     // 只列出本阵营与通用单位：盟军的建造列表里混着天启坦克会让人无从下手
     var keys = Object.keys(defs).filter(function(k) {
       var d = defs[k];
@@ -302,7 +302,7 @@ export class UIManager {
     var swm = gameState.superWeaponManager;
     if (!swm || !dom.swList || !dom.superWeaponPanel) return;
     var panel = dom.superWeaponPanel;
-    var weapons = swm.getAllSuperWeapons(TEAM_PLAYER);
+    var weapons = swm.getAllSuperWeapons(gameState.humanTeam);
     if (weapons.length === 0) {
       panel.classList.add('hidden');
       this._swItems = {};
@@ -419,12 +419,15 @@ export class UIManager {
     if (gameState.gameOver) {
       var dom = this._dom;
       dom.gameOver.style.display = 'flex';
-      if (gameState.winner === TEAM_PLAYER) {
+      if (gameState.winner === gameState.humanTeam) {
         dom.gameOverText.textContent = 'VICTORY'; dom.gameOverText.style.color = '#2ecc71';
-        dom.gameOverSub.textContent = '\u654c\u65b9\u57fa\u5730\u5df2\u88ab\u6467\u6bc1\uff01';
+        dom.gameOverSub.textContent = '\u654c\u65b9\u6307\u6325\u6240\u5df2\u88ab\u6467\u6bc1\uff01';
+      } else if (gameState.winner < 0) {
+        dom.gameOverText.textContent = 'GAME OVER'; dom.gameOverText.style.color = '#f1c40f';
+        dom.gameOverSub.textContent = '\u672c\u5c40\u5df2\u7ed3\u675f';
       } else {
         dom.gameOverText.textContent = 'DEFEATED'; dom.gameOverText.style.color = '#c0392b';
-        dom.gameOverSub.textContent = '\u4f60\u7684\u57fa\u5730\u88ab\u6467\u6bc1\u4e86';
+        dom.gameOverSub.textContent = '\u4f60\u7684\u6307\u6325\u6240\u88ab\u6467\u6bc1\u4e86';
       }
       var elapsed = Math.floor((Date.now() - gameStartTime) / 1000);
       var mins = Math.floor(elapsed / 60), secs = elapsed % 60;

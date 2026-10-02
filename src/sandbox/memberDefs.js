@@ -73,6 +73,7 @@ export function createMember(gameState, spec, x, y) {
   const e = gameState.spawnEntity('member', spec.team, x, y);
   e.faction = spec.faction;
   e.isMember = true;
+  e.avoidDanger = true;   // 成员寻路会规避敌方碉堡/炮塔射程
   e.memberKey = spec.key;
   e.memberName = spec.name;
   e.name = spec.name;

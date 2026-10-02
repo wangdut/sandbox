@@ -18,7 +18,7 @@ export function updateBuildingAI(gameState, e, frameCount) {
       e.built = true;
       // 幂等补占用：保证「存在的建筑必占格」这个不变量，任何新增的建造路径都不会漏
       gameState.map.setOccupancy(e);
-      if (e.team === TEAM_PLAYER) { notify(e.name + ' \u5efa\u9020\u5b8c\u6210', 'info'); audioManager.playBuild(); }
+      if (e.team === gameState.humanTeam) { notify(e.name + ' \u5efa\u9020\u5b8c\u6210', 'info'); audioManager.playBuild(); }
     }
     return;
   }
@@ -42,7 +42,7 @@ export function updateBuildingAI(gameState, e, frameCount) {
         // 磁暴线圈耗电极大：基地电力不足时无法开火（红警2 设定）
         var powered = true;
         if (e.type === 'tesla') {
-          powered = e.team === TEAM_PLAYER
+          powered = e.team === gameState.humanTeam
             ? (gameState.playerPower >= gameState.playerPowerUse)
             : (gameState.enemyPower >= gameState.enemyPowerUse);
         }
@@ -58,13 +58,13 @@ export function updateBuildingAI(gameState, e, frameCount) {
     var pd = UNIT_DEFS[e.producing];
     if (pd) {
       // 人口已满时暂停生产而不是硬造出来撑爆上限（红警2 行为）
-      if (e.team === TEAM_PLAYER && gameState.playerUnitCount >= gameState.playerUnitMax) {
+      if (e.team === gameState.humanTeam && gameState.playerUnitCount >= gameState.playerUnitMax) {
         if (frameCount % 300 === 0) notify('\u4eba\u53e3\u5df2\u6ee1\uff0c\u751f\u4ea7\u6682\u505c\u4e2d', 'warn');
       } else {
         e.produceProgress += 100 / (pd.buildTime * 60);
         if (e.produceProgress >= 100) {
           spawnProducedUnit(gameState, e);
-          if (e.team === TEAM_PLAYER) { notify(pd.name + ' \u8bad\u7ec3\u5b8c\u6210', 'info'); audioManager.playReady(); }
+          if (e.team === gameState.humanTeam) { notify(pd.name + ' \u8bad\u7ec3\u5b8c\u6210', 'info'); audioManager.playReady(); }
           e.producing = null;
           e.produceProgress = 0;
           if (e.productionQueue.length > 0) {

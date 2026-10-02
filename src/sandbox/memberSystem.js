@@ -12,7 +12,7 @@ import { findHQ, findRespawnSpot } from './scenario.js';
 
 export const RESPAWN_SEC = 30;      // 阵亡后重生等待（秒）
 export const REGEN_INTERVAL = 120;  // 每 2 秒回 1 次血
-export const REGEN_AMOUNT = 2;      // 每次回复量（≈1 点/秒，让「撤退重整」有意义）
+export const REGEN_AMOUNT = 3;      // 每次回复量（≈1.5 点/秒，让「撤退重整」有实际收益）
 
 export class MemberSystem {
   constructor() {
@@ -79,6 +79,7 @@ export class MemberSystem {
     const e = gameState.spawnEntity('member', slot.spec.team, spot.x, spot.y);
     e.faction = slot.spec.faction;
     e.isMember = true;
+    e.avoidDanger = true;
     e.memberKey = slot.spec.key;
     e.memberName = slot.spec.name;
     e.name = slot.spec.name;

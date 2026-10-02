@@ -65,7 +65,7 @@ export class ChatPanel {
 
   /**
    * 成员消息
-   * @param msg { name, team, text, to, at }
+   * @param msg { name, team, text, to, audience, at }
    */
   addMessage(msg) {
     const teamName = TEAM_NAMES[msg.team] || '';
@@ -81,6 +81,19 @@ export class ChatPanel {
     body.className = 'body';
     // 台词来自 LLM，用 textContent 注入，避免 HTML 注入
     body.textContent = (msg.to === '敌方' ? '📣 ' : (msg.to === '队友' ? '💬 ' : '')) + msg.text;
+
+    // 可见范围标记：让上帝玩家一眼看清"这条谁听得到"
+    if (msg.audience === 'both') {
+      const tag = document.createElement('span');
+      tag.className = 'scope both';
+      tag.textContent = '【全场】';
+      who.insertBefore(tag, who.firstChild);
+    } else if (msg.audience === 'blue' || msg.audience === 'red') {
+      const tag = document.createElement('span');
+      tag.className = 'scope team';
+      tag.textContent = '【仅本方】';
+      who.insertBefore(tag, who.firstChild);
+    }
 
     div.appendChild(who);
     div.appendChild(body);

@@ -1,7 +1,7 @@
 export const TILE_SIZE = 32;
-// 沙盘尺度：40×40 的小型对称战场，双基地对角相望，交战节奏快、便于观战调试
-export const MAP_WIDTH = 40;
-export const MAP_HEIGHT = 40;
+// 沙盘尺度：64×64 的中型战场，双基地对角相望，镜头可自由拖动（不会再看到黑边）
+export const MAP_WIDTH = 64;
+export const MAP_HEIGHT = 64;
 // 每秒帧数。冷却/建造/生产计时一律按帧存放（timer++），
 // 所以凡是「秒」的定义都必须 × FPS 换算，否则会差 60 倍。
 export const FPS = 60;

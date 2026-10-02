@@ -10,6 +10,7 @@
 import { FPS, TEAM_PLAYER, TEAM_NAMES } from '../constants.js';
 import { MEMBERS, WEAPONS } from '../sandbox/memberDefs.js';
 import { findHQ } from '../sandbox/scenario.js';
+import { session } from '../core/session.js';
 import { buildSystemPrompt, buildSnapshot } from './prompts.js';
 import { parseDecision } from './parser.js';
 import { fallbackDecide, quickCommandDecision } from './FallbackAI.js';
@@ -21,6 +22,9 @@ const CONTACT_RANGE = 10;        // 判定"发现敌人"的距离（格）
 const EVENT_CAP = 8;
 const MSG_CAP = 4;
 const MAX_CONSECUTIVE_ERRORS = 3;
+// 低血紧急再决策：允许突破常规冷却，让"快死了还在硬刚"能被及时纠正（只对受伤/低血触发）
+const EMERGENCY_HP_RATIO = 0.5;
+const EMERGENCY_COOLDOWN_SEC = 4;
 
 const TRIGGER_RANK = { command: 0, hurt: 1, lowhp: 2, targetdown: 3, contact: 4, chat: 5, idle: 6 };
 
@@ -143,6 +147,7 @@ export class AgentManager {
       agent.lastHp = null;
       agent.currentOrderTargetId = 0;
       agent.lowHpFlag = false;
+      agent.actionBlocked = false;
       return;
     }
 
@@ -152,7 +157,14 @@ export class AgentManager {
     if (!trigger) return;
 
     const canLLM = this.llmReady && agent.enabled && !agent.degraded && !this.budgetExceeded;
-    const cooldownOk = frameCount - agent.lastCallFrame >= this.cfg.budget.decisionCooldownSec * FPS;
+    let cooldownOk = frameCount - agent.lastCallFrame >= this.cfg.budget.decisionCooldownSec * FPS;
+    // 紧急通道：血量过半 + 正在挨打/血低 → 允许缩短冷却，尽快把"硬刚"改成撤退/换位
+    if (!cooldownOk && (trigger === 'hurt' || trigger === 'lowhp') &&
+        member.hp / member.maxHp < EMERGENCY_HP_RATIO &&
+        frameCount - agent.lastCallFrame >= EMERGENCY_COOLDOWN_SEC * FPS) {
+      cooldownOk = true;
+      agent.emergencyCalls = (agent.emergencyCalls || 0) + 1;
+    }
 
     if (canLLM) {
       // 有 LLM：排不上队（冷却/并发/限流）就等下一帧，绝不用脚本兜底抢答——
@@ -164,7 +176,7 @@ export class AgentManager {
     }
 
     // 真正无 LLM（未配置 / 被关闭 / 已降级 / 超预算）才走兜底
-    const humanTeam = agent.spec.team === TEAM_PLAYER;
+    const humanTeam = agent.spec.team === session.humanTeam;
     if (humanTeam && this._isBusy(member)) return;  // 不覆盖玩家鼠标下达的指令
     this._applyFallback(agent, member, gameState, frameCount, trigger);
   }
@@ -284,14 +296,20 @@ export class AgentManager {
     const ctx = {
       spec: agent.spec,
       board: board,
+      humanTeam: session.humanTeam,
+      // 命令只取"本队"的：跨阵营绝不能看到上帝给对方下的指令
       lastCommand: this.commandBus ? this.commandBus.lastForTeam(agent.spec.team) : null,
       events: agent.events.slice(),
       allyMsgs: agent.allyMsgs.slice(),
       enemyMsgs: agent.enemyMsgs.slice(),
+      currentAction: this._currentAction(gameState, agent, member, frameCount),
     };
+    const snapshot = buildSnapshot(gameState, member, ctx);
+    // 留痕：出问题时可以直接看"模型当时到底看到了什么"（也用于验证阵营情报隔离）
+    agent.lastSnapshot = snapshot;
     const messages = [
-      { role: 'system', content: buildSystemPrompt(agent.spec) },
-      { role: 'user', content: buildSnapshot(gameState, member, ctx) },
+      { role: 'system', content: buildSystemPrompt(agent.spec, session.humanTeam) },
+      { role: 'user', content: snapshot },
     ];
 
     agent.inFlight = true;
@@ -386,11 +404,43 @@ export class AgentManager {
     }
   }
 
+  /**
+   * 当前正在执行的动作快照（喂给模型，避免它"忘了自己在上一个命令里说要干嘛"）
+   */
+  _currentAction(gameState, agent, member, frameCount) {
+    if (!agent.lastDecision) return null;
+    const d = agent.lastDecision;
+    const targetEnt = agent.currentOrderTargetId ? findEntityById(gameState, agent.currentOrderTargetId) : null;
+    const remaining = (member.path && member.path.length > member.pathIndex)
+      ? member.path.length - member.pathIndex : 0;
+    return {
+      动作: d.action,
+      意图: d.intent || '',
+      目标: targetEnt && !targetEnt.dead ? targetEnt.name : null,
+      剩余路程: remaining,
+      已持续秒: agent.lastApplyFrame ? Math.round((frameCount - agent.lastApplyFrame) / FPS) : 0,
+      受阻: !!agent.actionBlocked,
+    };
+  }
+
+  /** 记录"决策没能落实"：这是意图与行为脱节的直接证据，必须让模型和玩家都看见 */
+  _noteBlocked(agent, why, frameCount) {
+    agent.actionBlocked = true;
+    agent.blockedCount = (agent.blockedCount || 0) + 1;
+    const fc = typeof frameCount === 'number' ? frameCount : agent.lastApplyFrame || 0;
+    if (fc - (agent.lastBlockedEventFrame || -9999) > 180) {
+      agent.lastBlockedEventFrame = fc;
+      agent.events.push('你的行动未能落实：' + why);
+    }
+  }
+
   _applyDecision(agent, member, gameState, frameCount, decision) {
     // 1) 武器切换
     if (decision.weapon && WEAPONS[decision.weapon]) {
       this.memberSystem.setWeapon(member, decision.weapon);
     }
+    agent.lastApplyFrame = frameCount;
+    agent.actionBlocked = false;
 
     const action = decision.action;
     const target = decision.target;
@@ -406,8 +456,9 @@ export class AgentManager {
     if ((action === 'attack' || action === 'attack_move') && !targetEntity && !(target && target.类型 === 'position')) {
       const board = this._boardFor(gameState, agent.spec.team);
       const fb = fallbackDecide(gameState, member, { spec: agent.spec, board: board });
+      this._noteBlocked(agent, '目标无效', frameCount);
       if (fb && fb.target) { return this._applyDecision(agent, member, gameState, frameCount, fb); }
-      return;
+      return false;
     }
 
     const map = gameState.map;
@@ -439,7 +490,7 @@ export class AgentManager {
         const dest = target && target.类型 === 'position'
           ? { x: Math.round(target.x), y: Math.round(target.y) }
           : (targetEntity ? tileCenter(targetEntity) : null);
-        if (!dest) return;
+        if (!dest) { this._noteBlocked(agent, '移动目标缺失', frameCount); return false; }
         member.attackTarget = null;
         member.attackMoveTarget = null;
         member.guardPos = null;
@@ -453,7 +504,7 @@ export class AgentManager {
         const board = this._boardFor(gameState, agent.spec.team);
         const hq = board.ownHq;
         const dest = hq ? tileCenter(hq) : (target && target.类型 === 'position' ? target : null);
-        if (!dest) return;
+        if (!dest) { this._noteBlocked(agent, '找不到己方指挥所', frameCount); return false; }
         member.attackTarget = null;
         member.attackMoveTarget = null;
         member.path = map.findPath(mx, my, dest.x, dest.y, 3000, member, true);
@@ -492,6 +543,21 @@ export class AgentManager {
       default:
         break;
     }
+
+    // 3) 落实校验：行动类指令必须真的产生路径或锁定目标，否则就是"说了不做"
+    let inEffect = true;
+    if (action === 'attack') {
+      inEffect = !!member.attackTarget;
+      if (!inEffect) this._noteBlocked(agent, '没有可攻击的目标', frameCount);
+    } else if (action === 'attack_move' || action === 'move' || action === 'retreat' || action === 'guard') {
+      const hasPath = member.path && member.path.length > member.pathIndex;
+      const dest = member.attackMoveTarget || member.guardPos;
+      const atDest = dest ? (Math.abs(dest.x - member.x) + Math.abs(dest.y - member.y) <= 2) : true;
+      inEffect = hasPath || atDest;
+      if (!inEffect) this._noteBlocked(agent, '路径不通（前方被阻挡）', frameCount);
+    }
+    agent.actionInEffect = inEffect;
+    return inEffect;
   }
 
   // ==================== 喊话分发（阵营内协作 + 跨阵营喊话）====================
@@ -510,6 +576,8 @@ export class AgentManager {
       teamName: teamName,
       text: decision.say,
       to: deliverChat ? decision.to : null,
+      // 可见范围：阵营内喊话仅本方可见，跨阵营喊话双方可见（供 UI 标注与审计）
+      audience: deliverChat ? (decision.to === '敌方' ? 'both' : (agent.spec.team === 0 ? 'blue' : 'red')) : 'self',
       at: Date.now(),
     };
     this.hooks.onChat(msg);
@@ -608,6 +676,9 @@ export class AgentManager {
         intent: a.currentIntent,
         lastSay: a.lastSay,
         inFlight: a.inFlight,
+        actionBlocked: !!a.actionBlocked,
+        blockedCount: a.blockedCount || 0,
+        emergencyCalls: a.emergencyCalls || 0,
       });
     });
     return {
@@ -629,7 +700,31 @@ export class AgentManager {
     if (!caps) return;
     if (caps.maxTokensPerGame > 0 && this.totalTokens >= caps.maxTokensPerGame && !this.budgetExceeded) {
       this.budgetExceeded = true;
-      this.hooks.onNotify('已达每局 token 上限（' + this.totalTokens + '），成员降级为脚本 AI', 'warn');
+      this.hooks.onNotify('已达每局 token 上限（' + this.totalTokens + '），成员降级为脚本 AI；点顶部「+5万额度」可继续', 'warn');
     }
+  }
+
+  /**
+   * 调整每局 token 上限：追加额度时立刻解除降级，让成员在下一次触发就恢复 LLM
+   * （激战正酣时被降级最扫兴，所以这里必须能把状态清干净）
+   */
+  setBudgetCap(newCap) {
+    if (!this.cfg || !this.cfg.budget) return;
+    this.cfg.budget.maxTokensPerGame = newCap;
+    const wasExceeded = this.budgetExceeded;
+    if (this.totalTokens < newCap) {
+      this.budgetExceeded = false;
+      // 因超限而"看起来降级"的成员同步复活
+      this.agents.forEach(function (agent) {
+        if (agent.degraded && agent.consecutiveErrors === 0) agent.degraded = false;
+      });
+    }
+    return wasExceeded && !this.budgetExceeded;
+  }
+
+  /** 本局是否已彻底结束（供 UI 显示结算） */
+  abortGame() {
+    this.agents.forEach(function (a) { a.inFlight = false; });
+    this.inFlight = 0;
   }
 }

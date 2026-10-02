@@ -4,26 +4,34 @@
 // 红方阵地在蓝方的中心对称点上，保证双方条件完全一致（公平 + 便于调试）。
 
 import {
-  MAP_WIDTH, MAP_HEIGHT, TILE_SIZE, GRASS, CONCRETE, SAND, TREE,
+  MAP_WIDTH, MAP_HEIGHT, TILE_SIZE, GRASS, CONCRETE, SAND, TREE, ROCK,
   TEAM_PLAYER, TEAM_ENEMY, FACTION_ALLIED, FACTION_SOVIET,
 } from '../constants.js';
 import { MEMBERS, createMember } from './memberDefs.js';
 
 // 蓝方（左下）布局；红方由中心对称推导，确保绝对公平
 const BLUE_LAYOUT = {
-  base: { x: 5, y: 30 },
-  pillbox: { x: 9, y: 29 },
-  turret: { x: 7, y: 27 },
+  base: { x: 7, y: 52 },
+  pillbox: { x: 11, y: 51 },
+  turret: { x: 9, y: 49 },
   members: [
-    { key: 'blue_1', x: 5, y: 34 },
-    { key: 'blue_2', x: 7, y: 34 },
+    { key: 'blue_1', x: 7, y: 56 },
+    { key: 'blue_2', x: 9, y: 56 },
   ],
 };
 
-// 树丛（仅作掩体与视觉装饰，不阻断主通道）：按蓝方侧定义，红方镜像
-const BLUE_TREE_CLUMPS = [
-  { x: 3, y: 3 }, { x: 8, y: 9 }, { x: 15, y: 3 },
-  { x: 12, y: 14 }, { x: 3, y: 20 },
+// 树丛（掩体与视觉装饰）：按蓝方侧定义，红方镜像。只种在草地上，不会堵住主通路
+const TREE_CLUMPS = [
+  { x: 4, y: 8 }, { x: 13, y: 5 }, { x: 4, y: 24 }, { x: 22, y: 15 },
+  { x: 31, y: 5 }, { x: 6, y: 40 }, { x: 15, y: 58 }, { x: 27, y: 45 },
+];
+// 岩石群（不可通行，作为天然掩体/绕行点）
+const ROCK_CLUMPS = [
+  { x: 18, y: 8 }, { x: 5, y: 33 }, { x: 24, y: 24 }, { x: 34, y: 16 },
+];
+// 沙地（占位视觉，不改变通行性）
+const SAND_CLUMPS = [
+  { x: 10, y: 16 }, { x: 21, y: 33 }, { x: 3, y: 46 }, { x: 30, y: 28 },
 ];
 
 // 中心对称：size 为建筑占地边长（1 表示单格）
@@ -43,18 +51,30 @@ function fillTerrain(map) {
       map.occupancy[y][x] = null;
     }
   }
-  // 一棵树都不种在主通路上，避免影响成员寻路
-  const clumps = BLUE_TREE_CLUMPS.concat(BLUE_TREE_CLUMPS.map(function (c) { return mirror(c, 1); }));
-  clumps.forEach(function (c) {
-    for (let dy = -1; dy <= 1; dy++) {
-      for (let dx = -1; dx <= 1; dx++) {
-        if (Math.abs(dx) + Math.abs(dy) === 2) continue; // 菱形树丛
-        const tx = c.x + dx, ty = c.y + dy;
-        if (tx >= 0 && tx < MAP_WIDTH && ty >= 0 && ty < MAP_HEIGHT) map.terrain[ty][tx] = TREE;
-      }
+}
+
+/** 菱形点缀：只写在草地上，保证不会盖掉主通路与基地混凝土 */
+function stampClump(map, center, terrain, size) {
+  const r = size || 1;
+  for (let dy = -r; dy <= r; dy++) {
+    for (let dx = -r; dx <= r; dx++) {
+      if (Math.abs(dx) + Math.abs(dy) > r) continue;
+      const tx = center.x + dx, ty = center.y + dy;
+      if (tx < 0 || tx >= MAP_WIDTH || ty < 0 || ty >= MAP_HEIGHT) continue;
+      if (map.terrain[ty][tx] !== GRASS) continue;
+      map.terrain[ty][tx] = terrain;
     }
-  });
-  map._oreDirty = true;
+  }
+}
+
+/** 撒装饰：树/岩石/沙地，蓝方侧定义 + 中心对称镜像（确定性，不随机） */
+function decorate(map) {
+  const mirrored = function (list) {
+    return list.concat(list.map(function (c) { return mirror(c, 1); }));
+  };
+  mirrored(TREE_CLUMPS).forEach(function (c) { stampClump(map, c, TREE, 1); });
+  mirrored(ROCK_CLUMPS).forEach(function (c) { stampClump(map, c, ROCK, 1); });
+  mirrored(SAND_CLUMPS).forEach(function (c) { stampClump(map, c, SAND, 2); });
 }
 
 function setConcretePad(map, p, size) {
@@ -124,11 +144,15 @@ function spawnMembers(gameState, layout, team, flip) {
 
 /**
  * 构建沙盘场景：替换基座的 initPlayer/initEnemy
+ * @param humanTeam 上帝玩家操控的队伍（0=蓝方 / 1=红方）——只影响"谁是我方"，双方布景始终对称
  */
-export function buildSandboxScenario(gameState) {
+export function buildSandboxScenario(gameState, humanTeam) {
   const map = gameState.map;
+  gameState.humanTeam = humanTeam === 1 ? 1 : 0;
   fillTerrain(map);
+  // 先铺路再撒装饰：装饰只落在草地上，因此主通路永不被树石堵住
   drawRoad(map);
+  decorate(map);
 
   gameState.playerFaction = FACTION_ALLIED;
   gameState.enemyFaction = FACTION_SOVIET;
@@ -142,7 +166,9 @@ export function buildSandboxScenario(gameState) {
   spawnMembers(gameState, BLUE_LAYOUT, TEAM_ENEMY, true);
 
   map.recomputeRegions();
-  return { spawn: { x: blueBase.x, y: blueBase.y } };
+  map._oreDirty = true;
+  gameState.rebuildDanger();   // 初始威胁网格（成员寻路要用）
+  return { spawn: { x: blueBase.x, y: blueBase.y }, humanTeam: gameState.humanTeam };
 }
 
 /**

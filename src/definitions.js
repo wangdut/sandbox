@@ -36,7 +36,7 @@ export const BUILDING_DEFS = {
 export const DEFENSE_DEFS = {
   // 基础防御（双方共有）
   wall:    { name:'城墙',       cost:50,   hp:400, size:1, powerUse:0,  buildTime:1, requires:['base'],       range:0, damage:0,   fireRate:0,  category:'defenses', icon:'#7f8c8d', desc:'廉价障碍物', faction: null },
-  pillbox: { name:'碉堡',       cost:300,  hp:400, size:1, powerUse:10, buildTime:4, requires:['barracks'],   range:5, damage:12,  fireRate:30, category:'defenses', icon:'#d35400', desc:'快速射击步兵防御', faction: null },
+  pillbox: { name:'碉堡',       cost:300,  hp:400, size:1, powerUse:10, buildTime:4, requires:['barracks'],   range:5, damage:12,  fireRate:40, category:'defenses', icon:'#d35400', desc:'快速射击步兵防御', faction: null },
   
   // 盟军专属防御
   prismTower: { name:'光棱塔',    cost:1200, hp:500, size:1, powerUse:60, buildTime:6, requires:['alliedTech'], range:10, damage:120, fireRate:60, category:'defenses', icon:'#9b59b6', desc:'高能激光防御，可连线增强', faction: FACTION_ALLIED, canLink: true },
@@ -47,7 +47,7 @@ export const DEFENSE_DEFS = {
   flakCannon: { name:'高射炮',   cost:800, hp:500, size:1, powerUse:30, buildTime:5, requires:['warFactory'], range:10, damage:35, fireRate:15, category:'defenses', icon:'#c0392b', desc:'苏联防空炮，对空专用', faction: FACTION_SOVIET, antiAir: true, splashRadius: 1 },
   
   // 通用防御
-  turret:  { name:'重炮塔',     cost:600,  hp:500, size:1, powerUse:20, buildTime:5, requires:['warFactory'], range:7, damage:30,  fireRate:60, category:'defenses', icon:'#8e44ad', desc:'反装甲重炮', faction: null },
+  turret:  { name:'重炮塔',     cost:600,  hp:500, size:1, powerUse:20, buildTime:5, requires:['warFactory'], range:7, damage:30,  fireRate:75, category:'defenses', icon:'#8e44ad', desc:'反装甲重炮', faction: null },
 };
 
 // ==================== 单位定义 ====================
@@ -118,7 +118,7 @@ export const UNIT_DEFS = {
   // 每名成员都是一个 LLM 智能体：数值是可切换武器的基准值，
   // 实际战斗参数由 sandbox/memberDefs.js 的武器档案在切换时覆盖。
   // 血量刻意做厚：成员是「英雄」，要能承受一两轮交火并做出撤退判断。
-  member:     { name:'成员',      cost:0,    hp:380, speed:2.0, damage:14,  range:4.5, fireRate:20, requires:[], buildTime:0, type:'infantry', category:'units', icon:'#f1c40f', desc:'虚拟成员：可使用机枪与火箭筒', faction: null, member: true, hero: true },
+  member:     { name:'成员',      cost:0,    hp:420, speed:1.2, damage:14,  range:4.5, fireRate:20, requires:[], buildTime:0, type:'infantry', category:'units', icon:'#f1c40f', desc:'虚拟成员：可使用机枪与火箭筒', faction: null, member: true, hero: true },
 };
 
 // ==================== 装甲类型定义 ====================
