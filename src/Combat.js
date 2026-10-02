@@ -99,12 +99,12 @@ export function performAttack(gameState, attacker, target) {
   else if (attacker.type === 'arty') projType = 'shell';
   
   var from = { x: attacker.getCenterX(), y: attacker.getCenterY() };
-  gameState.addProjectile(from, target, dmg, attacker.team, projType, attacker.splashRadius);
+  gameState.addProjectile(from, target, dmg, attacker.team, projType, attacker.splashRadius, attacker);
 
   // 天启坦克双炮管：并排两发齐射
   if (atkDef && atkDef.dualGun) {
     var from2 = { x: attacker.getCenterX() - 7, y: attacker.getCenterY() };
-    gameState.addProjectile(from2, target, dmg, attacker.team, projType, attacker.splashRadius);
+    gameState.addProjectile(from2, target, dmg, attacker.team, projType, attacker.splashRadius, attacker);
   }
 
   // 播放音效
@@ -121,8 +121,38 @@ export function performBurstShot(gameState, attacker, target) {
   var dmg = attacker.damage;
   if (attacker.veterancy >= 1) dmg = Math.floor(dmg * 1.25);
   var from = { x: attacker.getCenterX() + (Math.random() - 0.5) * 8, y: attacker.getCenterY() + (Math.random() - 0.5) * 8 };
-  gameState.addProjectile(from, target, dmg, attacker.team, 'rocket', 0);
+  gameState.addProjectile(from, target, dmg, attacker.team, 'rocket', 0, attacker);
   audioManager.playShoot();
+}
+
+// 直射弹道会被 blocksFire 建筑（中立高楼）整段拦下；火箭与航弹走抛物线，
+// 能越过山包与楼群，因此俯射武器在掩体时代依然有价值。
+var FLAT_TRAJECTORY = { bullet: true, shell: true, laser: true, tesla: true };
+var MUZZLE_CLEAR = 0.8;    // 出膛段（格）：射手可能正贴着墙或站在楼里，不能自己挡住自己
+var SAMPLE_STEP = 0.4;     // 采样步长（格）：弹速 8px/帧 ≈ 0.25 格，按 0.4 格采样不会漏格
+
+/** 本帧扫过的线段是否撞上有遮挡属性的建筑 */
+function findFireBlocker(gameState, p) {
+  var map = gameState.map;
+  if (!map || !map.occupancy) return null;
+  var travelledX = p.x - p.startX, travelledY = p.y - p.startY;
+  if (Math.sqrt(travelledX * travelledX + travelledY * travelledY) < MUZZLE_CLEAR * TILE_SIZE) return null;
+  var dx = p.x - p.prevX, dy = p.y - p.prevY;
+  var len = Math.sqrt(dx * dx + dy * dy);
+  if (len <= 0) return null;
+  var steps = Math.max(1, Math.ceil(len / (SAMPLE_STEP * TILE_SIZE)));
+  for (var s = 1; s <= steps; s++) {
+    var t = s / steps;
+    var tx = Math.floor((p.prevX + dx * t) / TILE_SIZE);
+    var ty = Math.floor((p.prevY + dy * t) / TILE_SIZE);
+    if (tx < 0 || ty < 0 || tx >= MAP_WIDTH || ty >= MAP_HEIGHT) return null;
+    var row = map.occupancy[ty];
+    var occ = row && row[tx];
+    if (!occ || !occ.blocksFire || occ.dead) continue;
+    if (occ === p.target || occ === p.attacker) continue;
+    return occ;
+  }
+  return null;
 }
 
 export function updateProjectiles(gameState) {
@@ -140,19 +170,30 @@ export function updateProjectiles(gameState) {
       if (p.type === 'shell' || p.type === 'tesla') gameState.addExplosion(p.targetX, p.targetY, 20, p.type === 'tesla' ? 'electric' : 'fire');
       else if (p.type === 'rocket') gameState.addExplosion(p.targetX, p.targetY, 16, 'fire');
       if (p.splash > 0) {
-        gameState.applySplashDamage(p.targetX, p.targetY, p.splash, Math.floor(p.damage * 0.6), p.team);
+        gameState.applySplashDamage(p.targetX, p.targetY, p.splash, Math.floor(p.damage * 0.6), p.team, p.attacker);
         gameState.addExplosion(p.targetX, p.targetY, p.splash * TILE_SIZE * 0.6, 'big');
       }
       // 统一伤害入口：扣血/无敌判定/击杀归属/死亡清理
-      gameState.damageEntity(p.target, p.damage);
+      gameState.damageEntity(p.target, p.damage, p.attacker);
     } else if (p.splash > 0) {
         gameState.addExplosion(p.targetX, p.targetY, 24, 'fire');
-        gameState.applySplashDamage(p.targetX, p.targetY, p.splash, Math.floor(p.damage * 0.5), p.team);
+        gameState.applySplashDamage(p.targetX, p.targetY, p.splash, Math.floor(p.damage * 0.5), p.team, p.attacker);
       }
       gameState.projectiles.splice(i, 1);
     } else {
+      p.prevX = p.x; p.prevY = p.y;
       p.x += dx / dist * p.speed;
       p.y += dy / dist * p.speed;
+      if (FLAT_TRAJECTORY[p.type]) {
+        var blocker = findFireBlocker(gameState, p);
+        if (blocker) {
+          gameState.addExplosion(p.x, p.y, 12, 'fire');
+          gameState.addFloatingText(p.x, p.y - 8, '被高楼阻挡', '#c8d2e0');
+          // 墙体吃下这发弹药的一半：单发打不动楼，持续炮击依然能把它拆掉
+          gameState.damageEntity(blocker, Math.floor(p.damage * 0.5), p.attacker);
+          gameState.projectiles.splice(i, 1);
+        }
+      }
     }
   }
 }

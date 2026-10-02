@@ -1,10 +1,13 @@
-import { MAP_WIDTH, MAP_HEIGHT, TEAM_PLAYER, TEAM_ENEMY, TILE_SIZE, TEAM_NEUTRAL } from './constants.js';
+import { MAP_WIDTH, MAP_HEIGHT, TEAM_PLAYER, TEAM_ENEMY, TILE_SIZE, TEAM_NEUTRAL, SANDBAG } from './constants.js';
 import { BUILDING_DEFS, DEFENSE_DEFS, UNIT_DEFS, FACTION_NAMES, FACTION_ALLIED, FACTION_SOVIET } from './definitions.js';
 import { Entity } from './Entity.js';
 import { GameMap } from './GameMap.js';
 import { SpatialGrid } from './SpatialGrid.js';
 import { FogOfWar } from './FogOfWar.js';
 import { SuperWeaponManager } from './SuperWeapon.js';
+
+/** 沙袋阵地的减伤系数：踩在沙袋格上，受到的伤害按比例削减（-40%） */
+export const SANDBAG_DAMAGE_MULT = 0.6;
 
 export class GameState {
   constructor() {
@@ -290,12 +293,15 @@ export class GameState {
     return r;
   }
 
-  addProjectile(from, to, damage, team, type, splash) {
+  addProjectile(from, to, damage, team, type, splash, attacker) {
     const p = {
       x: from.x, y: from.y,
       damage, team, type: type || 'bullet',
       target: to, speed: type === 'shell' ? 5 : (type === 'rocket' ? 5.5 : 8),
-      splash: splash || 0
+      splash: splash || 0,
+      attacker: attacker || null,
+      // 出膛点与上一帧坐标：弹道遮挡检测要用它们跳过枪口段、并按线段采样
+      startX: from.x, startY: from.y, prevX: from.x, prevY: from.y
     };
     if (to.getCenterX) { p.targetX = to.getCenterX(); p.targetY = to.getCenterY(); }
     else { p.targetX = to.x; p.targetY = to.y; }
@@ -343,6 +349,16 @@ export class GameState {
     this.minimapAlerts.push({ x, y, color: color || '#e74c3c', timer: 50, maxTimer: 50 });
   }
 
+  /** 单位脚下是否为沙袋工事（实体坐标以「格」为单位） */
+  _isInSandbag(e) {
+    const map = this.map;
+    if (!map || !map.terrain) return false;
+    const tx = Math.floor(e.x), ty = Math.floor(e.y);
+    if (tx < 0 || ty < 0 || tx >= MAP_WIDTH || ty >= MAP_HEIGHT) return false;
+    const row = map.terrain[ty];
+    return !!row && row[tx] === SANDBAG;
+  }
+
   /**
    * 统一伤害入口：扣血、铁幕无敌判定、伤害飘字、击杀归属、死亡清理（爆炸/音效/胜负判定）
    */
@@ -352,13 +368,20 @@ export class GameState {
       this.addFloatingText(target.getCenterX(), target.getCenterY() - 14, '无敌', '#8e44ad');
       return;
     }
+    // 沙袋工事减伤：所有伤害都走这个入口，溅射因此自动同样被削减。
+    // 建筑是硬目标，不吃地形减免。
+    let covered = false;
+    if (!target.isBuilding && dmg > 1 && this._isInSandbag(target)) {
+      dmg = Math.max(1, Math.floor(dmg * SANDBAG_DAMAGE_MULT));
+      covered = true;
+    }
     target.hp -= dmg;
     target.flashTimer = 5;
     if (attacker && !attacker.dead) {
       target.lastDamagedBy = attacker;
       target.lastDamagedTimer = 180;
     }
-    this.addFloatingText(target.getCenterX(), target.getCenterY() - 10, '-' + dmg, '#ff6b6b');
+    this.addFloatingText(target.getCenterX(), target.getCenterY() - 10, '-' + dmg, covered ? '#e3b669' : '#ff6b6b');
     if (target.hp <= 0) {
       target.hp = 0;
       this.addExplosion(target.getCenterX(), target.getCenterY(), target.isBuilding ? 36 : 30, 'big');

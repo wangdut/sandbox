@@ -13,10 +13,11 @@ import { buildSystemPrompt, buildSnapshot } from '../src/agents/prompts.js';
 import { DEFAULT_CONFIG, resolveMemberAuth, isAgentEnabled, migrateConfig } from '../src/agents/config.js';
 import { DEFENSE_DEFS, UNIT_DEFS } from '../src/definitions.js';
 import { GameMap } from '../src/GameMap.js';
-import { GameState } from '../src/GameState.js';
+import { GameState, SANDBAG_DAMAGE_MULT } from '../src/GameState.js';
+import { updateProjectiles } from '../src/Combat.js';
 import { MemberSystem, HG_RANGE_BONUS, HG_DAMAGE_MULT } from '../src/sandbox/memberSystem.js';
 import { buildSandboxScenario, findHQ } from '../src/sandbox/scenario.js';
-import { FPS, TEAM_PLAYER, TEAM_ENEMY, TEAM_NEUTRAL, GRASS, MAP_WIDTH, MAP_HEIGHT, HILL, HILL_TOP, SANDBAG } from '../src/constants.js';
+import { FPS, TEAM_PLAYER, TEAM_ENEMY, TEAM_NEUTRAL, GRASS, MAP_WIDTH, MAP_HEIGHT, TILE_SIZE, HILL, HILL_TOP, SANDBAG } from '../src/constants.js';
 
 let passed = 0;
 const failures = [];
@@ -344,6 +345,51 @@ ok('高地: 快照报出脚下地形与生效中的加成', reliefSnap['地形']
   /\+2/.test(reliefSnap['地形'].高地状态 || ''));
 ok('高地: 快照给出最近战术位坐标', !!reliefSnap['地形'].最近山顶 && !!reliefSnap['地形'].最近沙袋);
 ok('地形: 系统提示讲清山顶与沙袋的用法', buildSystemPrompt(MEMBERS[0]).indexOf('【高地与掩体】') >= 0);
+
+// ==================== 13. 掩体与弹道：高楼挡直射、沙袋按比例减伤 ====================
+function coverDummy(tx, ty, isBuilding) {
+  return {
+    x: tx, y: ty, hp: 1000, dead: false, isBuilding: !!isBuilding, flashTimer: 0,
+    getCenterX() { return (this.x + 0.5) * TILE_SIZE; },
+    getCenterY() { return (this.y + 0.5) * TILE_SIZE; },
+  };
+}
+const onBag = coverDummy(post.x, post.y);
+const onFlat = coverDummy(flat.x, flat.y);
+const bagBuilding = coverDummy(post.x, post.y, true);
+world.damageEntity(onFlat, 100);
+world.damageEntity(onBag, 100);
+world.damageEntity(bagBuilding, 100);
+eq('掩体: 沙袋内步兵减伤（100→' + (1000 - onBag.hp) + '）', 1000 - onBag.hp, Math.floor(100 * SANDBAG_DAMAGE_MULT));
+ok('掩体: 开阔地步兵吃满伤（' + (1000 - onFlat.hp) + '）', 1000 - onFlat.hp === 100);
+ok('掩体: 建筑是硬目标，不因脚下沙袋减免', 1000 - bagBuilding.hp === 100);
+
+const tower = world.entities.find(function (e) { return e.blocksFire && !e.dead; });
+ok('弹道: 战场上有可挡弹的中立高楼', !!tower);
+const tcx = tower.getCenterX(), tcy = tower.getCenterY();
+function pointDummy(px, py) {
+  return { hp: 5000, dead: false, isBuilding: false, getCenterX() { return px; }, getCenterY() { return py; } };
+}
+/** 从楼西侧 200px 直射楼东侧 200px 的同高目标，返回命中结果 */
+function fireThrough(type, offY) {
+  world.projectiles.length = 0;
+  const tgt = pointDummy(tcx + 200, tcy + offY);
+  const shooter = pointDummy(tcx - 200, tcy + offY);
+  world.addProjectile({ x: tcx - 200, y: tcy + offY }, tgt, 40, TEAM_ENEMY, type, 0, shooter);
+  let guard = 0;
+  while (world.projectiles.length && guard++ < 400) updateProjectiles(world);
+  return { hit: 5000 - tgt.hp, left: world.projectiles.length };
+}
+const hpBeforeBullet = tower.hp;
+const blockedShot = fireThrough('bullet', 0);
+ok('弹道: 直射子弹被高楼截停，墙体吃掉一半伤害（楼 ' + hpBeforeBullet + '→' + tower.hp + '）',
+  blockedShot.hit === 0 && blockedShot.left === 0 && tower.hp < hpBeforeBullet &&
+  world.floatingTexts.some(function (t) { return t.text === '被高楼阻挡'; }));
+const hpAfterBullet = tower.hp;
+const arcShot = fireThrough('rocket', 0);
+ok('弹道: 火箭走抛物线，越过高楼照样命中', arcShot.hit > 0 && tower.hp === hpAfterBullet);
+const clearShot = fireThrough('bullet', -4 * TILE_SIZE);
+ok('弹道: 未被遮挡的直射视线照常命中', clearShot.hit > 0);
 
 // ==================== 汇总 ====================
 console.log('\n通过 ' + passed + ' 项' + (failures.length ? '，失败 ' + failures.length + ' 项：' : '，全部通过 ✅'));
