@@ -1,0 +1,293 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>虚拟沙盘 · API 配置</title>
+<style>
+  :root { --red: #c0392b; --blue: #4a9fd4; --bg: #0a0a14; --panel: #12121f; --line: #2a2a3a; }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0; background: var(--bg); color: #ddd;
+    font-family: 'Microsoft YaHei', system-ui, sans-serif; font-size: 13px; line-height: 1.6;
+  }
+  .wrap { max-width: 880px; margin: 0 auto; padding: 24px 20px 60px; }
+  h1 {
+    font-size: 20px; letter-spacing: 4px; margin: 8px 0 4px; color: #fff;
+    text-shadow: 0 0 12px rgba(192, 57, 43, .7);
+  }
+  .sub { color: #777; font-size: 12px; margin-bottom: 18px; }
+  .sub a { color: var(--blue); text-decoration: none; }
+  section {
+    background: var(--panel); border: 1px solid var(--line); border-radius: 3px;
+    padding: 14px 16px; margin-bottom: 14px;
+  }
+  section > h2 {
+    font-size: 12px; letter-spacing: 2px; color: var(--red);
+    margin: 0 0 12px; padding-bottom: 8px; border-bottom: 1px solid var(--line);
+  }
+  .row { display: flex; gap: 14px; flex-wrap: wrap; margin-bottom: 10px; }
+  .field { flex: 1 1 240px; display: flex; flex-direction: column; gap: 4px; }
+  .field.narrow { flex: 0 0 150px; }
+  label { font-size: 11px; color: #999; letter-spacing: 1px; }
+  input[type=text], input[type=password], input[type=number], select {
+    background: #060610; border: 1px solid var(--line); color: #eee;
+    padding: 7px 9px; border-radius: 2px; font-size: 13px; font-family: inherit; width: 100%;
+  }
+  input:focus { outline: none; border-color: var(--blue); }
+  .hint { font-size: 11px; color: #666; }
+  .check { display: flex; align-items: center; gap: 6px; font-size: 12px; color: #bbb; }
+  .member-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+  .member {
+    border: 1px solid var(--line); border-radius: 3px; padding: 8px 10px; background: #0d0d18;
+  }
+  .member.blue { border-left: 3px solid var(--blue); }
+  .member.red { border-left: 3px solid var(--red); }
+  .member .mname { font-weight: bold; color: #eee; font-size: 13px; margin-bottom: 6px; }
+  .member .mname span { font-size: 10px; color: #777; font-weight: normal; margin-left: 6px; }
+  button {
+    background: linear-gradient(180deg, #1e1e30, #14141f); color: #ddd;
+    border: 1px solid var(--line); padding: 8px 16px; border-radius: 2px;
+    cursor: pointer; font-size: 12px; letter-spacing: 1px; font-family: inherit;
+  }
+  button:hover { border-color: var(--blue); color: #fff; }
+  button.primary { background: linear-gradient(180deg, #c0392b, #8e2a20); border-color: #e05c4a; color: #fff; font-weight: bold; }
+  button.primary:hover { background: linear-gradient(180deg, #e04a38, #a53125); }
+  .actions { display: flex; gap: 10px; flex-wrap: wrap; align-items: center; }
+  #status {
+    margin-top: 12px; padding: 10px 12px; border-radius: 2px; font-size: 12px;
+    background: #060610; border: 1px solid var(--line); color: #999;
+    white-space: pre-wrap; word-break: break-all; max-height: 240px; overflow: auto;
+  }
+  #status.ok { border-color: #2ecc71; color: #2ecc71; }
+  #status.err { border-color: #e74c3c; color: #ff8b7f; }
+  textarea {
+    width: 100%; height: 90px; background: #060610; border: 1px solid var(--line);
+    color: #bbb; font-family: Consolas, monospace; font-size: 11px; padding: 8px; border-radius: 2px;
+  }
+  .warn { color: #f1c40f; font-size: 11px; }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <h1>API 配置</h1>
+  <p class="sub">
+    配置 4 名虚拟成员的大脑。Key 仅保存在本机浏览器 localStorage，经本机
+    <code>serve.mjs</code> 转发到你所填的端点；<a href="index.html">← 返回沙盘</a>
+  </p>
+
+  <section>
+    <h2>接口设置</h2>
+    <div class="row">
+      <div class="field">
+        <label>API 地址（base URL，兼容 OpenAI 协议）</label>
+        <input type="text" id="baseUrl" placeholder="https://api.deepseek.com">
+        <span class="hint">DeepSeek 填 https://api.deepseek.com ；OpenAI 填 https://api.openai.com/v1</span>
+      </div>
+      <div class="field">
+        <label>模型名</label>
+        <input type="text" id="model" placeholder="deepseek-chat">
+        <span class="hint">按你的账号实际可用模型填写（如 deepseek-chat / deepseek-reasoner）</span>
+      </div>
+    </div>
+    <div class="row">
+      <div class="field">
+        <label>API Key（4 名成员默认共用，可在下方单独覆盖）</label>
+        <input type="password" id="apiKey" placeholder="sk-...">
+        <span class="hint warn">Key 只存本机 localStorage，不会上传到任何第三方服务器</span>
+      </div>
+    </div>
+    <div class="row">
+      <div class="field narrow"><label>温度</label><input type="number" id="temperature" step="0.1" min="0" max="2"></div>
+      <div class="field narrow"><label>max_tokens</label><input type="number" id="maxTokens" step="50" min="100" max="8000"></div>
+      <div class="field narrow">
+        <label>推理强度 effort</label>
+        <select id="effort">
+          <option value="low">low（省 token，推荐）</option>
+          <option value="high">high</option>
+          <option value="max">max</option>
+          <option value="none">不使用（非推理模型）</option>
+        </select>
+      </div>
+      <div class="field" style="justify-content:flex-end">
+        <div class="check"><input type="checkbox" id="useProxy"><label for="useProxy">经本机 serve.mjs 转发（推荐，避开 CORS）</label></div>
+        <div class="check"><input type="checkbox" id="jsonMode"><label for="jsonMode">请求 response_format=json_object</label></div>
+      </div>
+    </div>
+    <span class="hint">若用 deepseek-flash 这类推理模型：effort=low 且 max_tokens≥600，否则推理会吃掉全部额度导致返回空内容</span>
+  </section>
+
+  <section>
+    <h2>成员开关与独立 Key（可选）</h2>
+    <div class="member-grid" id="memberGrid"></div>
+  </section>
+
+  <section>
+    <h2>成本与频率控制</h2>
+    <div class="row">
+      <div class="field narrow"><label>决策冷却(秒)</label><input type="number" id="decisionCooldownSec" min="1" max="120"></div>
+      <div class="field narrow"><label>喊话冷却(秒)</label><input type="number" id="chatCooldownSec" min="5" max="600"></div>
+      <div class="field narrow"><label>空闲决策间隔(秒)</label><input type="number" id="idleIntervalSec" min="3" max="300"></div>
+      <div class="field narrow"><label>全局调用/分钟</label><input type="number" id="maxCallsPerMinute" min="1" max="600"></div>
+      <div class="field narrow"><label>每局 token 上限</label><input type="number" id="maxTokensPerGame" min="1000" max="2000000" step="1000"></div>
+    </div>
+    <span class="hint">超出 token 上限后成员自动降级为脚本 AI（游戏不中断），可在对局 HUD 查看实时消耗</span>
+  </section>
+
+  <section>
+    <h2>保存与测试</h2>
+    <div class="actions">
+      <button class="primary" id="btnSave">保存配置</button>
+      <button id="btnTest">连接测试</button>
+      <button id="btnExport">导出 JSON</button>
+      <button id="btnImport">导入 JSON</button>
+      <button id="btnReset">恢复默认</button>
+    </div>
+    <div id="status">未测试</div>
+    <textarea id="ioBox" placeholder="导出/导入的 JSON 会显示在这里（导入时把 JSON 粘贴进来后点“导入 JSON”）" style="margin-top:10px"></textarea>
+  </section>
+</div>
+
+<script type="module">
+import { DEFAULT_CONFIG, loadConfig, saveConfig, resolveMemberAuth, CONFIG_KEY } from './src/agents/config.js';
+import { MEMBERS } from './src/sandbox/memberDefs.js';
+
+const $ = (id) => document.getElementById(id);
+let cfg = loadConfig();
+
+const TEXT_FIELDS = ['baseUrl', 'apiKey', 'model', 'effort'];
+const NUM_FIELDS = ['temperature', 'maxTokens'];
+const CHECK_FIELDS = ['useProxy', 'jsonMode'];
+const BUDGET_FIELDS = ['decisionCooldownSec', 'chatCooldownSec', 'idleIntervalSec', 'maxCallsPerMinute', 'maxTokensPerGame'];
+
+function renderMembers() {
+  const grid = $('memberGrid');
+  grid.innerHTML = '';
+  MEMBERS.forEach((spec) => {
+    const cls = spec.team === 0 ? 'blue' : 'red';
+    const teamName = spec.team === 0 ? '蓝方' : '红方';
+    const enabled = cfg.agentEnabled[spec.key] !== false;
+    const div = document.createElement('div');
+    div.className = 'member ' + cls;
+    div.innerHTML =
+      '<div class="mname">' + spec.name + '<span>' + teamName + ' · ' + spec.key + '</span></div>' +
+      '<div class="check"><input type="checkbox" data-en="' + spec.key + '"' + (enabled ? ' checked' : '') + '>' +
+      '<label>启用 LLM 大脑（关闭则用脚本 AI）</label></div>' +
+      '<div class="field"><label>独立 Key（留空则共用上面的 Key）</label>' +
+      '<input type="password" data-mkey="' + spec.key + '" value="' + (cfg.memberApiKeys[spec.key] || '') + '"></div>' +
+      '<div class="field"><label>独立模型（留空则共用）</label>' +
+      '<input type="text" data-mmodel="' + spec.key + '" value="' + (cfg.memberModels[spec.key] || '') + '"></div>';
+    grid.appendChild(div);
+  });
+}
+
+function fillForm() {
+  TEXT_FIELDS.forEach((f) => { $(f).value = cfg[f] || ''; });
+  NUM_FIELDS.forEach((f) => { $(f).value = cfg[f]; });
+  CHECK_FIELDS.forEach((f) => { $(f).checked = !!cfg[f]; });
+  BUDGET_FIELDS.forEach((f) => { $(f).value = cfg.budget[f]; });
+  renderMembers();
+}
+
+function collectForm() {
+  const next = loadConfig();
+  TEXT_FIELDS.forEach((f) => { next[f] = $(f).value.trim(); });
+  NUM_FIELDS.forEach((f) => { next[f] = Number($(f).value) || 0; });
+  CHECK_FIELDS.forEach((f) => { next[f] = $(f).checked; });
+  BUDGET_FIELDS.forEach((f) => { next.budget[f] = Number($(f).value) || 0; });
+  document.querySelectorAll('[data-en]').forEach((el) => { next.agentEnabled[el.getAttribute('data-en')] = el.checked; });
+  document.querySelectorAll('[data-mkey]').forEach((el) => { next.memberApiKeys[el.getAttribute('data-mkey')] = el.value.trim(); });
+  document.querySelectorAll('[data-mmodel]').forEach((el) => { next.memberModels[el.getAttribute('data-mmodel')] = el.value.trim(); });
+  return next;
+}
+
+function setStatus(text, kind) {
+  const el = $('status');
+  el.textContent = text;
+  el.className = kind || '';
+}
+
+function save() {
+  cfg = collectForm();
+  if (saveConfig(cfg)) {
+    setStatus('已保存到本机 localStorage（' + CONFIG_KEY + '）\n模型：' + cfg.model + '  端点：' + cfg.baseUrl +
+      (cfg.agentEnabled ? '\n启用成员：' + MEMBERS.filter((m) => cfg.agentEnabled[m.key] !== false).map((m) => m.name).join('、') : ''), 'ok');
+  } else {
+    setStatus('保存失败：浏览器拒绝写入 localStorage', 'err');
+  }
+}
+
+async function testConnection() {
+  cfg = collectForm();
+  const auth = resolveMemberAuth(cfg, 'blue_1');
+  if (!auth.apiKey) { setStatus('请先填写 API Key', 'err'); return; }
+  if (!auth.model || !cfg.baseUrl) { setStatus('请填写模型名与 API 地址', 'err'); return; }
+  setStatus('测试中…（最多 60 秒）');
+  const messages = [
+    { role: 'system', content: '你是一个测试助手，只输出 JSON。' },
+    { role: 'user', content: '请只输出这个 JSON：{"台词":"连接正常","对谁":null,"动作":"hold","目标":null,"武器":"机枪","说明":"测试"}' },
+  ];
+  const started = Date.now();
+  try {
+    const res = await sendRaw(cfg, auth, messages);
+    setStatus('✅ 连接成功（' + (Date.now() - started) + 'ms）\n' +
+      '模型：' + auth.model + '\n' +
+      '回包：\n' + res.text.slice(0, 600) +
+      (res.usage ? '\n\ntoken 用量：' + JSON.stringify(res.usage) : ''), 'ok');
+  } catch (e) {
+    setStatus('❌ 连接失败：' + e.message + '\n\n排查建议：\n' +
+      '· API 地址/模型名是否正确（DeepSeek 为 https://api.deepseek.com）\n' +
+      '· Key 是否有效、账号是否有余额\n' +
+      '· 若关闭了"经本机转发"，浏览器可能被 CORS 拦截，建议开启\n' +
+      '· 若报 response_format 相关错误，可关闭 json_object 选项', 'err');
+  }
+}
+
+/** 与游戏内 LLMClient 同路径的原始调用 */
+async function sendRaw(cfg, auth, messages) {
+  const payload = {
+    baseUrl: cfg.baseUrl, apiKey: auth.apiKey, model: auth.model, messages,
+    temperature: cfg.temperature, maxTokens: cfg.maxTokens, jsonMode: cfg.jsonMode,
+    effort: cfg.effort && cfg.effort !== 'none' ? cfg.effort : undefined,
+  };
+  const url = cfg.useProxy ? '/api/llm' : cfg.baseUrl.replace(/\/+$/, '') + '/chat/completions';
+  const headers = { 'Content-Type': 'application/json' };
+  if (!cfg.useProxy) headers['Authorization'] = 'Bearer ' + auth.apiKey;
+  const resp = await fetch(url, { method: 'POST', headers, body: JSON.stringify(payload) });
+  const json = await resp.json();
+  if (cfg.useProxy) {
+    if (!json.ok) throw new Error(json.error || ('代理返回错误 ' + json.status));
+    const d = json.data;
+    return { text: d.choices[0].message.content, usage: d.usage, latencyMs: json.latencyMs };
+  }
+  if (!resp.ok) throw new Error((json.error && json.error.message) || ('HTTP ' + resp.status));
+  return { text: json.choices[0].message.content, usage: json.usage };
+}
+
+$('btnSave').onclick = save;
+$('btnTest').onclick = testConnection;
+$('btnReset').onclick = () => {
+  cfg = JSON.parse(JSON.stringify(DEFAULT_CONFIG));
+  fillForm();
+  setStatus('已恢复默认值（记得点"保存配置"）');
+};
+$('btnExport').onclick = () => {
+  $('ioBox').value = JSON.stringify(collectForm(), null, 2);
+  setStatus('已导出到下方文本框（可复制备份）');
+};
+$('btnImport').onclick = () => {
+  try {
+    const obj = JSON.parse($('ioBox').value);
+    cfg = obj;
+    saveConfig(cfg);
+    fillForm();
+    setStatus('导入成功并已保存', 'ok');
+  } catch (e) {
+    setStatus('导入失败：JSON 格式不对 — ' + e.message, 'err');
+  }
+};
+
+fillForm();
+</script>
+</body>
+</html>

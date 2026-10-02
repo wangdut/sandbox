@@ -9,6 +9,11 @@ import { SandboxAI } from './sandbox/SandboxAI.js';
 import { buildSandboxScenario } from './sandbox/scenario.js';
 import { MemberSystem } from './sandbox/memberSystem.js';
 import { MemberPanel } from './ui/MemberPanel.js';
+import { ChatPanel } from './ui/ChatPanel.js';
+import { loadConfig } from './agents/config.js';
+import { AgentManager } from './agents/AgentManager.js';
+import { CommandBus } from './core/commandBus.js';
+import { MEMBERS } from './sandbox/memberDefs.js';
 import { AudioManager, audioManager } from './AudioManager.js';
 import { SaveManager } from './SaveManager.js';
 import { setNotifier } from './Notifications.js';
@@ -24,6 +29,7 @@ setNotifier(notify);
 
 let canvas, minimapCanvas, ctx, minimapCtx;
 let gameState, renderer, ui, input, sandboxAI, saveManager, memberSystem, memberPanel;
+let commandBus, agentManager, chatPanel, sandboxConfig;
 let camera = { x: 0, y: 0, zoom: 1 };
 let selectedUnits = [], selectedBuilding = null;
 let placingBuilding = false, placingType = null;
@@ -136,6 +142,35 @@ function startGame(diff) {
   memberPanel = new MemberPanel();
   memberPanel.init();
   memberPanel.update(gameState, memberSystem);
+
+  // ===== LLM 大脑层（M2）=====
+  sandboxConfig = loadConfig();
+  commandBus = new CommandBus();
+  // 命令按成员 key 分发，避免本模块依赖成员名册
+  commandBus.setMemberKeysResolver(function (team) {
+    return MEMBERS.filter(function (m) { return m.team === team; }).map(function (m) { return m.key; });
+  });
+  agentManager = new AgentManager();
+  agentManager.init({
+    config: sandboxConfig,
+    memberSystem: memberSystem,
+    commandBus: commandBus,
+    notify: notify,
+    onChat: function (msg) {
+      if (chatPanel) chatPanel.addMessage(msg);
+    },
+  });
+  chatPanel = new ChatPanel();
+  chatPanel.init({
+    onSendCommand: sendGodCommand,
+    onQuickCommand: sendQuickCommand,
+  });
+  if (agentManager.llmReady) {
+    chatPanel.addSystem('【系统】成员大脑已接入（' + sandboxConfig.model + '）。输入命令并回车即可下达给己方成员。');
+  } else {
+    chatPanel.addSystem('【系统】尚未配置 API Key：成员将由脚本 AI 行动。点右下"⚙ API 配置"粘贴 Key 后刷新页面即可启用。');
+  }
+
   saveManager = new SaveManager();
   wireSuperWeaponCallbacks(gameState.superWeaponManager);
   // 调试/测试钩子
@@ -143,6 +178,8 @@ function startGame(diff) {
   window.__input = input;
   window.__ui = ui;
   window.__memberSystem = memberSystem;
+  window.__agents = agentManager;
+  window.__commandBus = commandBus;
   ui.renderGroupBar(gameState);
   ui.updateBuildList(gameState);
   // 开局自动选中己方两名成员，玩家可立即右键指挥
@@ -194,6 +231,8 @@ function gameLoop() {
       updateEnemyAI();
       memberSystem.update(gameState, frameCount);
       memberPanel.update(gameState, memberSystem);
+      agentManager.update(gameState, frameCount);
+      if (frameCount % 30 === 0) updateAgentStats();
       ui.updateNotification();
       checkGameOver();
       if (gameState.gameOver) break;
@@ -332,6 +371,45 @@ function updateResources() {
     audioManager.playAlert();
     gameState.lowPowerAlertCooldown = 600;
   }
+}
+
+/**
+ * 上帝命令：打字输入 → 命令通道 → 己方成员各自调用 LLM 回应与决策
+ */
+function sendGodCommand(text) {
+  if (!commandBus || !agentManager) return;
+  const cmd = commandBus.sendCommand({ team: TEAM_PLAYER, type: 'text', text: text });
+  if (!cmd) return;
+  chatPanel.addSystem('【你 → 蓝方】' + text);
+  if (!agentManager.llmReady) {
+    chatPanel.addSystem('（未配置 API Key：成员无法用 LLM 回应，仅按脚本 AI 行动。到 config.html 粘贴 Key 后刷新页面）');
+  }
+}
+
+/**
+ * 快捷命令：结构化指令直接执行，不消耗 token
+ */
+function sendQuickCommand(kind) {
+  if (!commandBus || !agentManager) return;
+  const LABELS = { allAttack: '总攻', retreat: '撤退', defend: '回防', regroup: '集合' };
+  const label = LABELS[kind] || kind;
+  commandBus.sendCommand({ team: TEAM_PLAYER, type: 'quick', kind: kind, text: '【' + label + '】', queue: false });
+  chatPanel.addSystem('【你 → 蓝方】' + label + '（快捷命令，不消耗 token）');
+  const n = agentManager.applyQuickCommand(gameState, TEAM_PLAYER, kind);
+  if (n === 0) chatPanel.addSystem('（当前没有可用成员，可能在等待重生）');
+}
+
+/** 聊天面板右侧的 token / 调用计数 */
+function updateAgentStats() {
+  if (!chatPanel || !agentManager) return;
+  const s = agentManager.stats();
+  if (!s.llmReady) {
+    chatPanel.setStats('脚本 AI 模式');
+    return;
+  }
+  const cap = sandboxConfig && sandboxConfig.budget ? sandboxConfig.budget.maxTokensPerGame : 0;
+  chatPanel.setStats('token ' + s.totalTokens + (cap > 0 ? '/' + cap : '') +
+    ' · 调用 ' + s.totalCalls + ' · 失败 ' + s.totalErrors + (s.inFlight ? ' · 思考中…' : ''));
 }
 
 function updateEnemyAI() {

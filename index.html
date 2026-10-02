@@ -102,6 +102,23 @@
 
 <button id="helpFAB" onclick="showHelp()">操作说明</button>
 
+<div id="chatPanel">
+  <div id="chatLog"></div>
+  <div id="chatQuick">
+    <button data-quick="allAttack" title="命令两名成员进攻敌方指挥所">总攻</button>
+    <button data-quick="retreat" title="命令成员撤回己方指挥所">撤退</button>
+    <button data-quick="defend" title="命令成员守卫己方指挥所">回防</button>
+    <button data-quick="regroup" title="命令成员到指挥所集合">集合</button>
+    <button id="voiceBtn" disabled>🎤 语音</button>
+    <span id="chatStats"></span>
+    <a id="configLink" href="config.html" target="_blank" title="配置成员大脑的 API Key">⚙ API 配置</a>
+  </div>
+  <div id="chatInputRow">
+    <input id="chatInput" type="text" placeholder="输入命令后回车（例：寒鸦绕到北面拆指挥所，雷霆掩护）">
+    <button id="chatSend">发送</button>
+  </div>
+</div>
+
 <div id="groupBar"></div>
 
 <div id="helpOverlay">

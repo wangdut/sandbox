@@ -59,3 +59,53 @@ body.sandbox #superWeaponPanel { display: none !important; }
 /* ===== 阵营选择卡：红/蓝色彩呼应 ===== */
 body.sandbox .mode-card.easy { border-color: #4a9fd4; }
 body.sandbox .mode-card.easy:hover { box-shadow: 0 0 18px rgba(74, 159, 212, .35); }
+
+/* ===== 聊天 / 命令面板（底部） ===== */
+#chatPanel {
+  position: absolute;
+  left: 0; right: 300px; bottom: 0;
+  height: 148px;
+  background: linear-gradient(180deg, rgba(10, 10, 20, .82), rgba(6, 6, 16, .95));
+  border-top: 2px solid #c0392b;
+  display: flex; flex-direction: column;
+  z-index: 9;
+  font-size: 12px;
+}
+#chatLog {
+  flex: 1; overflow-y: auto; padding: 6px 10px; color: #bbb; line-height: 1.6;
+}
+#chatLog::-webkit-scrollbar { width: 8px; }
+#chatLog::-webkit-scrollbar-thumb { background: #2a2a3a; }
+.chat-entry { white-space: pre-wrap; word-break: break-word; }
+.chat-entry.blue { color: #7fc4ec; }
+.chat-entry.red { color: #ef8b7c; }
+.chat-entry.system { color: #f1c40f; }
+.chat-entry.shout { font-weight: bold; text-shadow: 0 0 8px rgba(241, 196, 15, .5); }
+
+#chatQuick {
+  display: flex; align-items: center; gap: 6px;
+  padding: 4px 10px; border-top: 1px solid #1e1e30;
+}
+#chatQuick button {
+  background: linear-gradient(180deg, #1e1e30, #14141f); color: #ccc;
+  border: 1px solid #2a2a3a; border-radius: 2px; padding: 3px 10px;
+  cursor: pointer; font-size: 11px; font-family: inherit;
+}
+#chatQuick button:hover:not(:disabled) { border-color: #4a9fd4; color: #fff; }
+#chatQuick button:disabled { opacity: .45; cursor: not-allowed; }
+#chatStats { margin-left: auto; color: #777; font-size: 11px; }
+#configLink { color: #4a9fd4; text-decoration: none; font-size: 11px; margin-left: 10px; }
+#configLink:hover { text-decoration: underline; }
+
+#chatInputRow { display: flex; gap: 6px; padding: 0 10px 8px; }
+#chatInput {
+  flex: 1; background: #060610; border: 1px solid #2a2a3a; color: #eee;
+  padding: 6px 10px; border-radius: 2px; font-size: 12px; font-family: inherit;
+}
+#chatInput:focus { outline: none; border-color: #4a9fd4; }
+#chatSend {
+  background: linear-gradient(180deg, #c0392b, #8e2a20); color: #fff;
+  border: 1px solid #e05c4a; border-radius: 2px; padding: 6px 16px;
+  cursor: pointer; font-size: 12px; font-family: inherit;
+}
+#chatSend:hover { background: linear-gradient(180deg, #e04a38, #a53125); }
