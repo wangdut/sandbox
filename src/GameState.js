@@ -1,4 +1,4 @@
-import { MAP_WIDTH, MAP_HEIGHT, TEAM_PLAYER, TEAM_ENEMY, TILE_SIZE } from './constants.js';
+import { MAP_WIDTH, MAP_HEIGHT, TEAM_PLAYER, TEAM_ENEMY, TILE_SIZE, TEAM_NEUTRAL } from './constants.js';
 import { BUILDING_DEFS, DEFENSE_DEFS, UNIT_DEFS, FACTION_NAMES, FACTION_ALLIED, FACTION_SOVIET } from './definitions.js';
 import { Entity } from './Entity.js';
 import { GameMap } from './GameMap.js';
@@ -257,6 +257,7 @@ export class GameState {
     const loY = Math.min(y1, y2), hiY = Math.max(y1, y2);
     const hit = function (e) {
       if (e.dead || e.team !== self.humanTeam || e.isBuilding) return;
+      if (e.isMount) return;  // 停放载具不可框选，只供右键"上车"
       const ecx = e.getCenterX(), ecy = e.getCenterY();
       if (ecx >= loX && ecx <= hiX && ecy >= loY && ecy <= hiY) r.push(e);
     };
@@ -280,7 +281,8 @@ export class GameState {
     // 不过滤 e.built：在建建筑同样占格、同样能挨打（applySplashDamage 就不检查 built），
     // 之前只允许锁定已完工建筑，导致「能炸到却打不到」的判定矛盾
     this.spatialGrid.forEachInRange(ex / TILE_SIZE, ey / TILE_SIZE, range + 2, function (e) {
-      if (e.team !== entity.team && !e.dead) {
+      // 中立建筑（高楼）不参与自动索敌：成员/防御只在被明令攻击时才打它，免得浪费火力
+      if (e.team !== entity.team && e.team !== TEAM_NEUTRAL && !e.dead) {
         const dx = ex - e.getCenterX(), dy = ey - e.getCenterY();
         if (dx * dx + dy * dy <= rp2) r.push(e);
       }

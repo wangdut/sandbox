@@ -15,6 +15,13 @@
 
 body.sandbox { font-family: var(--vs-font); }
 
+/* 暗角：聚焦战场中央，强化红警式金属质感 */
+#vignette {
+  position: absolute; top: 0; left: 0; width: 100%; height: 100%;
+  pointer-events: none; z-index: 5;
+  background: radial-gradient(ellipse at center, transparent 55%, rgba(0, 0, 0, .42) 100%);
+}
+
 /* ===== 隐藏基座的经济发展/建造相关 UI（沙盘为极简对抗） ===== */
 body.sandbox #topBar .res-group,
 body.sandbox #topBar .sep { display: none; }

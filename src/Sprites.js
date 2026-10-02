@@ -332,6 +332,20 @@ export function drawBuilding(ctx, e, ex, ey2, eS, tc, td, gameState, frameCount)
       ctx.fillRect(0, 1, 12, 3);
       ctx.restore();
       break;
+    case 'highrise': {
+      // 中立高楼：向上拔高，营造城市天际线（可摧毁的掩体）
+      ctx.fillStyle = '#3c4657';
+      ctx.fillRect(ex + 6, ey2 - 34, eS - 12, eS + 28);
+      ctx.fillStyle = '#26303f';
+      ctx.fillRect(ex + 6, ey2 - 34, eS - 12, 5);
+      ctx.fillStyle = 'rgba(150,200,235,0.5)';
+      for (var wy = -30; wy < eS - 4; wy += 11) {
+        for (var wx = 12; wx < eS - 16; wx += 11) {
+          ctx.fillRect(ex + wx, ey2 + wy, 5, 6);
+        }
+      }
+      break;
+    }
   }
 
   // Build progress
@@ -604,6 +618,34 @@ export function drawUnit(ctx, e, ex, ey2, tc, td, frameCount) {
         ctx.fillStyle = '#f1c40f';
         ctx.fillRect(ux - 10, uy + 7 - oh, 3, oh);
       }
+    } else if (e.type === 'tank') {
+      // 主战坦克（可乘驾载具）
+      ctx.fillStyle = '#222';
+      ctx.fillRect(ux - 13, uy + 3, 26, 7);
+      ctx.fillStyle = '#5d6d7e';
+      ctx.fillRect(ux - 13, uy - 3, 26, 8);
+      ctx.fillStyle = '#2c3e50';
+      ctx.beginPath(); ctx.arc(ux, uy - 1, 7, 0, Math.PI * 2); ctx.fill();
+      ctx.save();
+      ctx.translate(ux, uy - 1);
+      ctx.rotate(e.turretDir);
+      ctx.fillStyle = '#1a252f';
+      ctx.fillRect(0, -2, 17, 4);
+      ctx.restore();
+    } else if (e.type === 'apc') {
+      // 装甲车（可乘驾载具）
+      ctx.fillStyle = '#333';
+      ctx.fillRect(ux - 11, uy + 3, 22, 6);
+      ctx.fillStyle = '#7f8c8d';
+      ctx.fillRect(ux - 11, uy - 4, 22, 8);
+      ctx.fillStyle = '#95a5a6';
+      ctx.fillRect(ux - 9, uy - 7, 18, 4);
+      ctx.save();
+      ctx.translate(ux, uy - 3);
+      ctx.rotate(e.turretDir);
+      ctx.fillStyle = '#2c3e50';
+      ctx.fillRect(0, -1.5, 10, 3);
+      ctx.restore();
     }
   } else if (e.isAirUnit) {
     // 空军单位渲染

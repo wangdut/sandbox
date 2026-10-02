@@ -7,6 +7,7 @@ export const MAP_HEIGHT = 64;
 export const FPS = 60;
 export const GRASS = 0, WATER = 1, ORE = 2, ROCK = 3, CONCRETE = 4, SAND = 5, TREE = 6;
 export const TEAM_PLAYER = 0, TEAM_ENEMY = 1;
+export const TEAM_NEUTRAL = 2; // 中立单位/建筑（高楼大厦等，双方都可攻击）
 
 // 阵营颜色
 export const COLOR_ALLIED = '#4a9fd4', COLOR_ALLIED_DARK = '#1a5276';

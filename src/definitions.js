@@ -48,6 +48,13 @@ export const DEFENSE_DEFS = {
   
   // 通用防御
   turret:  { name:'重炮塔',     cost:600,  hp:500, size:1, powerUse:20, buildTime:5, requires:['warFactory'], range:7, damage:30,  fireRate:75, category:'defenses', icon:'#8e44ad', desc:'反装甲重炮', faction: null },
+  // 沙盘新增：高射机枪阵地（防空 + 反步兵，护住指挥所/载具）
+  aaNest:   { name:'高射机枪阵地', cost:0, hp:520, size:1, powerUse:10, buildTime:0, requires:[], range:7, damage:14, fireRate:22, category:'defenses', icon:'#e67e22', desc:'高射机枪，对空对地通吃', faction: null, antiAir: true, hitsAll: true },
+};
+
+// ==================== 中立建筑（地图装饰/掩体，双方都可摧毁）====================
+export const NEUTRAL_BUILDING_DEFS = {
+  highrise: { name:'高楼大厦', cost:0, hp:900, size:2, buildTime:0, requires:[], category:'buildings', icon:'#8899aa', desc:'可摧毁的中立高楼，遮挡视线与道路', faction: null, armorType: 'concrete' },
 };
 
 // ==================== 单位定义 ====================
@@ -119,6 +126,11 @@ export const UNIT_DEFS = {
   // 实际战斗参数由 sandbox/memberDefs.js 的武器档案在切换时覆盖。
   // 血量刻意做厚：成员是「英雄」，要能承受一两轮交火并做出撤退判断。
   member:     { name:'成员',      cost:0,    hp:420, speed:1.2, damage:14,  range:4.5, fireRate:20, requires:[], buildTime:0, type:'infantry', category:'units', icon:'#f1c40f', desc:'虚拟成员：可使用机枪与火箭筒', faction: null, member: true, hero: true },
+
+  // ==================== 可乘驾载具（停放在指挥所旁，成员走近即可上车）====================
+  tank:       { name:'主战坦克', cost:0, hp:650, speed:1.4, damage:42, range:6, fireRate:40, requires:[], buildTime:0, type:'vehicle', category:'units', icon:'#34495e', desc:'可乘驾载具：重甲重炮', faction: null, mount: true, armorType:'heavy', damageType:'cannon' },
+  apc:        { name:'装甲车',   cost:0, hp:420, speed:2.2, damage:16, range:5, fireRate:16, requires:[], buildTime:0, type:'vehicle', category:'units', icon:'#7f8c8d', desc:'可乘驾载具：机枪高机动', faction: null, mount: true, armorType:'light', damageType:'bullet' },
+  gunship:    { name:'炮艇机',   cost:0, hp:300, speed:2.4, damage:55, range:7, fireRate:55, requires:[], buildTime:0, type:'helicopter', category:'units', icon:'#9b59b6', desc:'可乘驾载具：对地轰炸', faction: null, mount: true, armorType:'light', damageType:'missile', splashRadius: 1 },
 };
 
 // ==================== 装甲类型定义 ====================
@@ -164,10 +176,12 @@ export const ARMOR_BY_TYPE = {
   ironCurtain: 'steel', nukeSilo: 'steel', weatherControl: 'steel', chronosphere: 'steel',
   // --- 防御建筑 ---
   wall: 'steel', pillbox: 'concrete', prismTower: 'concrete', patriot: 'concrete',
-  tesla: 'concrete', flakCannon: 'concrete', turret: 'steel',
+  tesla: 'concrete', flakCannon: 'concrete', turret: 'steel', aaNest: 'concrete',
   // --- 步兵（一律无装甲，靠血量和机动存活）---
   infantry: 'none', conscript: 'none', rocket: 'none', flakTrooper: 'none', member: 'none',
   engineer: 'none', spy: 'none', tanya: 'none', attackDog: 'none', crazyIvan: 'none',
+  // --- 载具 ---
+  tank: 'heavy', apc: 'light', gunship: 'light',
   // --- 车辆 ---
   harvester: 'light', warMiner: 'medium', grizzly: 'medium', rhino: 'heavy',
   apocalypse: 'heavy', mirage: 'light', prism: 'light', v3: 'light',
@@ -183,6 +197,8 @@ export const DAMAGE_BY_TYPE = {
   // --- 步兵 ---
   infantry: 'bullet', conscript: 'bullet', attackDog: 'bullet', tanya: 'bullet', member: 'bullet',
   rocket: 'rocket', flakTrooper: 'rocket',
+  // --- 载具 ---
+  tank: 'cannon', apc: 'bullet', gunship: 'missile',
   // --- 车辆 ---
   grizzly: 'cannon', rhino: 'cannon', apocalypse: 'cannon', mirage: 'cannon', arty: 'cannon',
   warMiner: 'bullet', ifv: 'bullet', flakTrack: 'bullet',
@@ -194,7 +210,7 @@ export const DAMAGE_BY_TYPE = {
   destroyer: 'cannon', aegis: 'missile', submarine: 'torpedo', dreadnought: 'missile',
   // --- 防御建筑 ---
   pillbox: 'bullet', flakCannon: 'bullet', prismTower: 'laser',
-  patriot: 'missile', tesla: 'electric', turret: 'cannon',
+  patriot: 'missile', tesla: 'electric', turret: 'cannon', aaNest: 'bullet',
 };
 
 // 兜底：定义表里漏标时按兵种给合理默认，避免又退回「建筑算轻甲、步枪算炮弹」

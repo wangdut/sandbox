@@ -32,8 +32,8 @@ export function updateBuildingAI(gameState, e, frameCount) {
       for (var ei = 0; ei < enemies.length; ei++) {
         var cand = enemies[ei];
         if (!e.canAttack(cand)) continue;
-        // 防空专用建筑只打空中目标
-        if (dd.antiAir && !cand.isAirUnit) continue;
+        // 防空专用建筑只打空中目标（高射机枪阵地 hitsAll 则对空对地通吃）
+        if (dd.antiAir && !cand.isAirUnit && !dd.hitsAll) continue;
         var cdx = cand.x - e.x, cdy = cand.y - e.y;
         var d = cdx * cdx + cdy * cdy; // 只比远近，平方即可
         if (d < bd) { bd = d; tgt = cand; }

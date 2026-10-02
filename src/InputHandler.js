@@ -156,7 +156,7 @@ export class InputHandler {
           if (bu.length > 0) callbacks.onPlaySelectSound();
         } else {
           var clicked = self._gameState.getEntityAt(mouse.worldX, mouse.worldY);
-          if (clicked && clicked.team === self._gameState.humanTeam && !clicked.dead) {
+          if (clicked && clicked.team === self._gameState.humanTeam && !clicked.dead && !clicked.isMount) {
             if (clicked.isBuilding) {
               callbacks.selectedUnits.forEach(function(u) { u.selected = false; });
               callbacks.selectedUnits.length = 0;
@@ -216,6 +216,18 @@ export class InputHandler {
           });
           self._gameState.addFloatingText(rc.getCenterX(), rc.getCenterY() - 15, '\u76ee\u6807!', '#e74c3c');
           callbacks.onNotify('\u653b\u51fb ' + rc.name, 'info');
+        } else if (rc && rc.isMount && rc.team === self._gameState.humanTeam && !rc.dead) {
+          // 右键己方停放载具 → 走过去乘驾
+          callbacks.selectedUnits.forEach(function(u) {
+            if (!u.isMember || u.mountType) return;
+            u.boardTarget = rc;
+            u.attackTarget = null;
+            u.attackMoveTarget = null;
+            u.guardPos = null;
+            u.path = self._gameState.map.findPath(Math.floor(u.x), Math.floor(u.y), Math.floor(rc.x), Math.floor(rc.y), 3000, u, true);
+            u.pathIndex = 0;
+          });
+          callbacks.onNotify('\u524d\u5f80\u4e58\u9a7e ' + rc.name, 'info');
         } else if (rc && rc.team === self._gameState.humanTeam && rc.isBuilding && !rc.dead) {
           callbacks.selectedUnits.forEach(function(u) {
             if (u.canRepair) { u.attackTarget = rc; u.path = []; u.pathIndex = 0; }

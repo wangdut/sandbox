@@ -6,7 +6,7 @@
 import { canDeliverShout, AgentManager } from '../src/agents/AgentManager.js';
 import { parseDecision } from '../src/agents/parser.js';
 import { CommandBus } from '../src/core/commandBus.js';
-import { MEMBERS, WEAPONS, applyWeapon } from '../src/sandbox/memberDefs.js';
+import { MEMBERS, WEAPONS, applyWeapon, boardVehicle, dismountVehicle } from '../src/sandbox/memberDefs.js';
 import { fallbackDecide, quickCommandDecision } from '../src/agents/FallbackAI.js';
 import { buildSystemPrompt, buildSnapshot } from '../src/agents/prompts.js';
 import { DEFAULT_CONFIG, resolveMemberAuth, isAgentEnabled, migrateConfig } from '../src/agents/config.js';
@@ -50,7 +50,8 @@ ok('解析: 前后缀解释可容忍', chatty.ok, chatty.error);
 ok('解析: 非法动作被拒', !parseDecision('{"台词":"x","动作":"dance","目标":null}').ok);
 ok('解析: 缺台词被拒', !parseDecision('{"动作":"hold"}').ok);
 ok('解析: attack 缺目标被拒', !parseDecision('{"台词":"x","动作":"attack"}').ok);
-ok('解析: move 需位置目标', !parseDecision('{"台词":"x","动作":"move","目标":{"类型":"unit","id":2}}').ok);
+ok('解析: move 缺目标被拒', !parseDecision('{"台词":"x","动作":"move"}').ok);
+ok('解析: move 可指向实体 id（乘驾/接近）', parseDecision('{"台词":"上车","动作":"move","目标":{"类型":"unit","id":9}}').ok);
 ok('解析: 空内容给出可读错误', /max_tokens|未返回内容/.test(parseDecision('').error));
 
 const longSay = parseDecision('{"台词":"' + '字'.repeat(40) + '","对谁":"敌人","动作":"hold","目标":null}');
@@ -76,8 +77,8 @@ eq('命令: queue=false 不触发 LLM 决策（快捷命令零 token）', bus.pe
 eq('命令: queue=false 仍写入历史', bus.lastForTeam(TEAM_PLAYER).text, '【撤退】');
 
 // ==================== 4. 成员与武器 ====================
-eq('成员: 名册共 4 人', MEMBERS.length, 4);
-eq('成员: 每方 2 人', MEMBERS.filter((m) => m.team === TEAM_PLAYER).length + '/' + MEMBERS.filter((m) => m.team === TEAM_ENEMY).length, '2/2');
+eq('成员: 名册共 6 人（3v3）', MEMBERS.length, 6);
+eq('成员: 每方 3 人', MEMBERS.filter((m) => m.team === TEAM_PLAYER).length + '/' + MEMBERS.filter((m) => m.team === TEAM_ENEMY).length, '3/3');
 const fakeUnit = { weaponMode: 'mg', damage: 14, range: 4.5, fireRate: 20, damageType: 'bullet', antiArmor: false, splashRadius: 0 };
 applyWeapon(fakeUnit, 'rocket');
 eq('武器: 切火箭筒改伤害', fakeUnit.damage, WEAPONS.rocket.damage);
@@ -227,6 +228,20 @@ eq('配置: 老存档自定义额度不被覆盖', migrateConfig({ budget: { max
 eq('数值: 成员移速已降到 1.2（原 2.0 的 60%）', UNIT_DEFS.member.speed, 1.2);
 ok('数值: 成员血量上调', UNIT_DEFS.member.hp >= 420);
 ok('数值: 碉堡射速下调（更慢的压制节奏）', DEFENSE_DEFS.pillbox.fireRate >= 40);
+
+
+// ==================== 11. 载具乘驾与新增防御 ====================
+const mountMember = { mountType: null, hp: 100, maxHp: 420, speed: 1.2, type2: 'infantry', size: 1, isAirUnit: false, weaponMode: 'mg', damage: 14, range: 4.5, fireRate: 20, damageType: 'bullet', antiArmor: false, splashRadius: 0, antiAir: false, armorType: 'none', path: [], pathIndex: 0, attackTarget: null, attackMoveTarget: null, guardPos: null, boardTarget: null, fireCooldown: 0 };
+boardVehicle(mountMember, { type: 'tank' });
+eq('载具: 乘驾后变主战坦克', mountMember.mountType, 'tank');
+ok('载具: 继承坦克的血量与重甲', mountMember.maxHp === 650 && mountMember.armorType === 'heavy');
+eq('载具: 坦克为地面单位', mountMember.isAirUnit, false);
+boardVehicle(mountMember, { type: 'gunship' });
+eq('载具: 炮艇机为空中单位', mountMember.isAirUnit, true);
+dismountVehicle(mountMember);
+eq('载具: 下机恢复步兵', mountMember.mountType, null);
+ok('载具: 下机保留血量比例', mountMember.hp > 0 && mountMember.hp <= 420 && mountMember.type2 === 'infantry');
+eq('防御: 高射机枪阵地对空对地通吃', DEFENSE_DEFS.aaNest.hitsAll, true);
 
 // ==================== 汇总 ====================
 console.log('\n通过 ' + passed + ' 项' + (failures.length ? '，失败 ' + failures.length + ' 项：' : '，全部通过 ✅'));

@@ -1,11 +1,11 @@
 import { TILE_SIZE, TYPE_AIRCRAFT, TYPE_HELICOPTER, TYPE_AIRSHIP } from './constants.js';
-import { BUILDING_DEFS, DEFENSE_DEFS, UNIT_DEFS, DAMAGE_TYPES, ARMOR_BY_TYPE, DAMAGE_BY_TYPE, DEFAULT_ARMOR_BY_CATEGORY, DEFAULT_DAMAGE_BY_CATEGORY } from './definitions.js';
+import { BUILDING_DEFS, DEFENSE_DEFS, UNIT_DEFS, NEUTRAL_BUILDING_DEFS, DAMAGE_TYPES, ARMOR_BY_TYPE, DAMAGE_BY_TYPE, DEFAULT_ARMOR_BY_CATEGORY, DEFAULT_DAMAGE_BY_CATEGORY } from './definitions.js';
 
 let entityCounter = 0;
 
 export class Entity {
   constructor(type, team, x, y) {
-    const def = BUILDING_DEFS[type] || DEFENSE_DEFS[type] || UNIT_DEFS[type];
+    const def = BUILDING_DEFS[type] || DEFENSE_DEFS[type] || UNIT_DEFS[type] || NEUTRAL_BUILDING_DEFS[type];
     this.id = ++entityCounter;
     this.type = type;
     this.team = team;
@@ -16,7 +16,7 @@ export class Entity {
     this.maxHp = def ? def.hp : 100;
     this.size = def ? (def.size || 1) : 1;
     this.name = def ? def.name : type;
-    this.isBuilding = !!(BUILDING_DEFS[type] || DEFENSE_DEFS[type]);
+    this.isBuilding = !!(BUILDING_DEFS[type] || DEFENSE_DEFS[type] || NEUTRAL_BUILDING_DEFS[type]);
     this.category = def ? def.category : 'units';
     this.damage = (def && def.damage) || 0;
     this.range = (def && def.range) || 0;
@@ -119,6 +119,9 @@ export class Entity {
     this.memberName = null;  // 显示名（雷霆/寒鸦/烈焰/夜枭）
     this.weaponMode = 'mg';  // 当前武器档案键（见 sandbox/memberDefs.js）
     this.avoidDanger = false; // 寻路时是否规避敌方防御射程（成员开启：让"绕后"真的绕）
+    this.mountType = null;   // 成员当前乘驾的载具类型（tank/apc/gunship）；null=步行
+    this.isMount = false;    // 无人乘驾的停放载具（不移动、不自动攻击）
+    this.boardTarget = null; // 成员准备乘驾的目标载具实体
     
     // 渲染相关
     this.renderTurretAngle = 0;

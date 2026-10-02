@@ -17,7 +17,7 @@ import { AgentManager } from './agents/AgentManager.js';
 import { CommandBus } from './core/commandBus.js';
 import { session, setHumanTeam } from './core/session.js';
 import { clampCameraToMap } from './core/camera.js';
-import { MEMBERS } from './sandbox/memberDefs.js';
+import { MEMBERS, boardVehicle } from './sandbox/memberDefs.js';
 import { AudioManager, audioManager } from './AudioManager.js';
 import { SaveManager } from './SaveManager.js';
 import { setNotifier } from './Notifications.js';
@@ -383,6 +383,22 @@ function updateEntities() {
       if (e.team === gameState.humanTeam) updateUnitAI(gameState, e);
     }
   }
+  // 乘驾处理：成员走到己方停放载具旁即自动上车（载具实体随之移除）
+  for (var bi = 0; bi < gameState.entities.length; bi++) {
+    var bm = gameState.entities[bi];
+    if (!bm.boardTarget || bm.dead) continue;
+    var mt = bm.boardTarget;
+    if (mt.dead || !mt.isMount) { bm.boardTarget = null; continue; }
+    var bdx = bm.x - (mt.x + 0.5), bdy = bm.y - (mt.y + 0.5);
+    if (bdx * bdx + bdy * bdy < 2.25) {
+      boardVehicle(bm, mt);
+      mt.dead = true;
+      mt.deathTimer = 1;
+      bm.boardTarget = null;
+      gameState.addFloatingText(bm.getCenterX(), bm.getCenterY() - 16, bm.memberName + ' 乘驾载具', '#f1c40f');
+      if (chatPanel) chatPanel.addSystem('【' + bm.memberName + '】乘驾了' + mt.name);
+    }
+  }
   updateRepairBays(gameState, frameCount);
 }
 
@@ -519,12 +535,18 @@ function updateEnemyAI() {
  */
 function toggleSelectedWeapon() {
   var sel = input ? input._callbacks.selectedUnits : selectedUnits;
-  var n = 0;
+  var n = 0, mounted = 0;
   sel.forEach(function(u) {
-    if (u.isMember && memberSystem.toggleWeapon(u)) n++;
+    if (!u.isMember) return;
+    if (u.mountType) { mounted++; return; }
+    if (memberSystem.toggleWeapon(u)) n++;
   });
+  if (mounted > 0 && n === 0) {
+    notify('载具模式下无法切换步兵武器', 'warn');
+    return;
+  }
   if (n > 0) {
-    var first = sel.find(function(u) { return u.isMember; });
+    var first = sel.find(function(u) { return u.isMember && !u.mountType; });
     notify('切换武器：' + first.name + ' → ' + (first.weaponMode === 'rocket' ? '火箭筒' : '机枪'), 'info');
   } else {
     notify('请先选中成员（金色光环单位）', 'warn');

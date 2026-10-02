@@ -7,7 +7,7 @@
 //   · 把决策翻译成引擎指令（寻路 / 锁定目标 / 切换武器 / 守卫）
 //   · 阵营内协作与跨阵营喊话的消息分发
 
-import { FPS, TEAM_PLAYER, TEAM_NAMES } from '../constants.js';
+import { FPS, TEAM_PLAYER, TEAM_NAMES, MAP_WIDTH, MAP_HEIGHT } from '../constants.js';
 import { MEMBERS, WEAPONS } from '../sandbox/memberDefs.js';
 import { findHQ } from '../sandbox/scenario.js';
 import { session } from '../core/session.js';
@@ -25,6 +25,11 @@ const MAX_CONSECUTIVE_ERRORS = 3;
 // 低血紧急再决策：允许突破常规冷却，让"快死了还在硬刚"能被及时纠正（只对受伤/低血触发）
 const EMERGENCY_HP_RATIO = 0.5;
 const EMERGENCY_COOLDOWN_SEC = 4;
+// 自保反射（零 token）：身处敌方火力覆盖 + 正在受击 + 血量低于阈值 → 立刻脱离，不等待 LLM。
+// 成员"硬刚碉堡到死"的主因是等下一次 LLM 决策的几秒空档里就被射杀，反射补上这个空档。
+const REFLEX_HP_RATIO = 0.55;
+const REFLEX_COOLDOWN_FRAMES = 240;
+const REFLEX_DANGER_MIN = 0.4;
 
 const TRIGGER_RANK = { command: 0, hurt: 1, lowhp: 2, targetdown: 3, contact: 4, chat: 5, idle: 6 };
 
@@ -153,6 +158,9 @@ export class AgentManager {
 
     this._observe(agent, member, gameState, frameCount);
 
+    // 自保反射（零 token）：残血 + 挨打 + 身处敌方火力覆盖 → 立刻脱离，不给 LLM 留空档
+    if (this._reflexWithdraw(agent, member, gameState, frameCount)) return;
+
     const trigger = this._pickTrigger(agent, member, gameState, frameCount);
     if (!trigger) return;
 
@@ -184,6 +192,66 @@ export class AgentManager {
   _isBusy(member) {
     const hasPath = member.path && member.path.length > 0 && member.pathIndex < member.path.length;
     return !!(hasPath || member.attackTarget || member.attackMoveTarget || member.guardPos);
+  }
+
+  /**
+   * 自保反射：残血 + 正在受击 + 身处敌方防御射程内 → 立刻脱离火力。
+   * 这是零 token 的脚本兜底，专门补"等下一次 LLM 决策的几秒里被碉堡射死"的空档。
+   * @returns true 表示已执行脱离，本帧不再走 LLM 决策
+   */
+  _reflexWithdraw(agent, member, gameState, frameCount) {
+    const ratio = member.hp / member.maxHp;
+    if (ratio > REFLEX_HP_RATIO) return false;
+    if (member.lastDamagedTimer <= 0) return false;                 // 没在挨打就不跑
+    if (member.isAirUnit) return false;                             // 载具/空中单位不适用步兵反射
+    const danger = gameState.danger && gameState.danger[member.team];
+    if (!danger) return false;
+    const mx = Math.floor(member.x), my = Math.floor(member.y);
+    const idx = my * MAP_WIDTH + mx;
+    if (!(danger[idx] > REFLEX_DANGER_MIN)) return false;           // 不在敌方火力覆盖内
+    if (frameCount - (agent.lastReflexFrame || -99999) < REFLEX_COOLDOWN_FRAMES) return false;
+
+    agent.lastReflexFrame = frameCount;
+    agent.reflexCount = (agent.reflexCount || 0) + 1;
+    const dest = this._findSafeTile(gameState, member, danger);
+    member.attackTarget = null;
+    member.attackMoveTarget = null;
+    member.burstRemaining = 0;
+    member.burstTarget = null;
+    member.guardPos = null;
+    member.path = gameState.map.findPath(mx, my, dest.x, dest.y, 3000, member, true);
+    member.pathIndex = 0;
+    agent.currentOrderTargetId = 0;
+    agent.currentIntent = '脱离火力重整';
+    agent.lastSay = '';
+    if (frameCount - (agent.lastReflexEventFrame || -99999) > 360) {
+      agent.lastReflexEventFrame = frameCount;
+      agent.events.push('受到重创，主动脱离敌方火力');
+    }
+    return true;
+  }
+
+  /** 找最近的"安全格"（威胁 < 0.3 且可通行）；找不到就退回己方指挥所 */
+  _findSafeTile(gameState, member, danger) {
+    const mx = Math.floor(member.x), my = Math.floor(member.y);
+    for (let r = 2; r <= 9; r++) {
+      let best = null, bestD = Infinity;
+      for (let dy = -r; dy <= r; dy++) {
+        for (let dx = -r; dx <= r; dx++) {
+          if (Math.max(Math.abs(dx), Math.abs(dy)) !== r) continue;  // 只搜半径 r 的方环
+          const tx = mx + dx, ty = my + dy;
+          if (tx < 0 || tx >= MAP_WIDTH || ty < 0 || ty >= MAP_HEIGHT) continue;
+          if (danger[ty * MAP_WIDTH + tx] > 0.3) continue;
+          if (!gameState.map.isPassable(tx, ty)) continue;
+          const d = dx * dx + dy * dy;
+          if (d < bestD) { bestD = d; best = { x: tx, y: ty }; }
+        }
+      }
+      if (best) return best;
+    }
+    const hq = findHQ(gameState, member.team);
+    if (hq) return { x: Math.floor(hq.x + hq.size / 2), y: Math.floor(hq.y + hq.size / 2) };
+    return { x: mx, y: my };
   }
 
   /** 更新记忆：受击、低血、目标被毁、发现敌人 */
@@ -463,6 +531,21 @@ export class AgentManager {
 
     const map = gameState.map;
     const mx = Math.floor(member.x), my = Math.floor(member.y);
+
+    // 目标是己方停放载具 → 走过去乘驾（获得载具装甲与火力）
+    if (targetEntity && targetEntity.isMount && targetEntity.team === member.team &&
+        (action === 'move' || action === 'attack_move' || action === 'attack')) {
+      const c = tileCenter(targetEntity);
+      member.boardTarget = targetEntity;
+      member.attackTarget = null;
+      member.attackMoveTarget = null;
+      member.guardPos = null;
+      member.path = map.findPath(mx, my, c.x, c.y, 3000, member, true);
+      member.pathIndex = 0;
+      agent.currentOrderTargetId = 0;
+      agent.currentIntent = '前往乘驾' + targetEntity.name;
+      return true;
+    }
 
     switch (action) {
       case 'attack':

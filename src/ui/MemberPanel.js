@@ -4,6 +4,7 @@
 
 import { TEAM_NAMES, TEAM_PLAYER } from '../constants.js';
 import { WEAPONS } from '../sandbox/memberDefs.js';
+import { UNIT_DEFS } from '../definitions.js';
 import { session } from '../core/session.js';
 import { escapeHtml } from './escape.js';
 
@@ -67,7 +68,9 @@ export class MemberPanel {
 
       const u = s.entity;
       const pct = Math.max(0, Math.round(u.hp / u.maxHp * 100));
-      const w = WEAPONS[u.weaponMode] || WEAPONS.mg;
+      const weaponLabel = u.mountType
+        ? '⚙ ' + ((UNIT_DEFS[u.mountType] && UNIT_DEFS[u.mountType].name) || '载具')
+        : ((WEAPONS[u.weaponMode] || WEAPONS.mg).icon + ' ' + (WEAPONS[u.weaponMode] || WEAPONS.mg).name);
       const barColor = pct > 60 ? '#2ecc71' : (pct > 30 ? '#f1c40f' : '#e74c3c');
       const stateLabel = a.degraded ? '脚本模式' : (a.inFlight ? '思考中…' : (a.actionBlocked ? '行动受阻' : '在线'));
       const tokens = a.tokens ? (a.tokens >= 1000 ? (a.tokens / 1000).toFixed(1) + 'k' : String(a.tokens)) : '0';
@@ -79,7 +82,7 @@ export class MemberPanel {
         '<span class="mp-side">' + TEAM_NAMES[spec.team] + ' · ' + sideLabel + '</span></div>' +
         '<div class="mp-bar"><i style="width:' + pct + '%;background:' + barColor + '"></i>' +
         '<span class="mp-hp">' + Math.ceil(u.hp) + '/' + u.maxHp + '</span></div>' +
-        '<div class="mp-meta">' + w.icon + ' ' + w.name + ' · ' + stateLabel + ' · ' + tokens + ' tok</div>' +
+        '<div class="mp-meta">' + escapeHtml(weaponLabel) + ' · ' + stateLabel + ' · ' + tokens + ' tok</div>' +
         (a.intent ? '<div class="mp-intent">意图：' + escapeHtml(a.intent) + '</div>' : '') +
         (a.lastSay ? '<div class="mp-say">「' + escapeHtml(a.lastSay) + '」</div>' : '') +
         (a.actionBlocked ? '<div class="mp-state">上次行动未落实，正在重新判断</div>' : '') +

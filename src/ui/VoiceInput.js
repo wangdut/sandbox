@@ -1,8 +1,9 @@
 // 语音输入：按住键说话 → 语音转文字 → 作为上帝命令发出
 //
 // 用浏览器内置的 Web Speech API（Chrome/Edge 支持，localhost 属于安全上下文可直接用）。
-// 注意：Chrome 的识别服务在部分网络环境下不可达（报 network 错误），
-// 此时会给出明确提示；若需要，可在配置页改用自建 ASR 端点（见 README）。
+// 关键坑：识别引擎在"静音超时"或一段话结束后会自行 onend，导致按住说话时被切断。
+// 解决：continuous 模式 + onend 时若用户仍按住就立刻重启识别，跨段累计最终文本，
+// 直到用户松开才把累计文本作为一条命令提交。
 
 export class VoiceInput {
   constructor() {
@@ -10,8 +11,11 @@ export class VoiceInput {
     this.listening = false;
     this.supported = false;
     this._callbacks = null;
-    this._finalText = '';
-    this._interimText = '';
+    this._desiredOn = false;   // 用户是否还按着（决定 onend 后是否续听）
+    this._accumulated = '';    // 跨段累计的最终文本
+    this._interim = '';        // 当前段的中间结果
+    this._restartTimer = null;
+    this._fatal = false;       // 致命错误（如麦克风被拒），不再自动重启
   }
 
   static isSupported() {
@@ -24,20 +28,15 @@ export class VoiceInput {
     const Ctor = typeof window !== 'undefined'
       ? (window.SpeechRecognition || window.webkitSpeechRecognition)
       : null;
-    if (!Ctor) {
-      this.supported = false;
-      return false;
-    }
+    if (!Ctor) { this.supported = false; return false; }
     this.supported = true;
     const rec = new Ctor();
     rec.lang = 'zh-CN';
-    rec.continuous = false;
+    rec.continuous = true;      // 持续听，避免一句话结束就断开
     rec.interimResults = true;
 
     rec.onstart = () => {
       this.listening = true;
-      this._finalText = '';
-      this._interimText = '';
       if (this._callbacks.onState) this._callbacks.onState('listening', '');
     };
 
@@ -45,54 +44,77 @@ export class VoiceInput {
       let interim = '';
       for (let i = ev.resultIndex; i < ev.results.length; i++) {
         const r = ev.results[i];
-        if (r.isFinal) this._finalText += r[0].transcript;
+        if (r.isFinal) this._accumulated += r[0].transcript;
         else interim += r[0].transcript;
       }
-      this._interimText = interim;
-      const shown = (this._finalText + interim).trim();
-      if (this._callbacks.onPartial) this._callbacks.onPartial(shown);
+      this._interim = interim;
+      if (this._callbacks.onPartial) this._callbacks.onPartial((this._accumulated + interim).trim());
     };
 
     rec.onerror = (ev) => {
-      this.listening = false;
       const code = ev && ev.error ? ev.error : 'unknown';
-      let msg = '语音识别出错：' + code;
       if (code === 'not-allowed' || code === 'service-not-allowed') {
-        msg = '麦克风权限被拒绝：请在浏览器地址栏允许麦克风后重试';
+        // 致命：权限被拒，不再重启，避免反复弹
+        this._fatal = true;
+        this.listening = false;
+        if (this._callbacks.onState) {
+          this._callbacks.onState('error', '麦克风权限被拒绝：请在浏览器地址栏允许麦克风后重试');
+        }
       } else if (code === 'network') {
-        msg = '语音识别服务不可达（浏览器内置识别依赖联网服务）：可挂代理重试，或改用配置页里的自建 ASR 端点';
-      } else if (code === 'no-speech') {
-        msg = '没听到声音，再试一次（按住 V 说话）';
+        this._fatal = true;
+        this.listening = false;
+        if (this._callbacks.onState) {
+          this._callbacks.onState('error', '语音识别服务不可达（浏览器内置识别依赖联网）：可挂代理重试');
+        }
+      } else {
+        // no-speech / aborted 等：不致命，onend 会按需重启
+        if (this._callbacks.onState && code !== 'no-speech' && code !== 'aborted') {
+          this._callbacks.onState('error', '语音识别出错：' + code);
+        }
       }
-      if (this._callbacks.onState) this._callbacks.onState('error', msg);
     };
 
     rec.onend = () => {
-      const wasListening = this.listening;
       this.listening = false;
-      const text = (this._finalText || this._interimText).trim();
+      if (this._desiredOn && !this._fatal) {
+        // 用户还按着：自动续听，跨段继续累计
+        if (this._restartTimer) clearTimeout(this._restartTimer);
+        this._restartTimer = setTimeout(() => { this._tryStart(); }, 120);
+        return;
+      }
+      // 松开才提交累计结果
+      const text = (this._accumulated || this._interim).trim();
       if (this._callbacks.onState) this._callbacks.onState('idle', '');
-      if (wasListening && text && this._callbacks.onFinal) this._callbacks.onFinal(text);
+      if (text && this._callbacks.onFinal) this._callbacks.onFinal(text);
     };
 
     this.recognition = rec;
     return true;
   }
 
-  start() {
-    if (!this.recognition || this.listening) return false;
+  _tryStart() {
+    if (!this.recognition || this._fatal || !this._desiredOn) return;
     try {
       this.recognition.start();
-      return true;
-    } catch (e) {
-      // 连续 start 会抛 InvalidStateError，忽略即可
-      return false;
-    }
+    } catch (e) { /* InvalidStateError：已在识别中，忽略 */ }
+  }
+
+  start() {
+    if (!this.recognition || this._fatal) return false;
+    this._desiredOn = true;
+    this._accumulated = '';
+    this._interim = '';
+    if (this._callbacks.onPartial) this._callbacks.onPartial('');
+    this._tryStart();
+    return true;
   }
 
   stop() {
-    if (!this.recognition || !this.listening) return false;
-    try { this.recognition.stop(); } catch (e) { /* 忽略 */ }
+    this._desiredOn = false;
+    if (this._restartTimer) { clearTimeout(this._restartTimer); this._restartTimer = null; }
+    if (this.recognition) {
+      try { this.recognition.stop(); } catch (e) { /* 忽略 */ }
+    }
     return true;
   }
 }

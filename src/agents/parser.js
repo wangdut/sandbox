@@ -104,8 +104,9 @@ export function parseDecision(text) {
   if ((action === 'attack' || action === 'attack_move') && !target) {
     return { ok: false, error: action + ' 缺少有效目标', raw: text };
   }
-  if (action === 'move' && (!target || target.类型 !== 'position')) {
-    return { ok: false, error: 'move 需要位置目标', raw: text };
+  // move 允许位置或实体 id（模型常用 move 走向载具/单位去乘驾或接近）
+  if (action === 'move' && !target) {
+    return { ok: false, error: 'move 缺少目标', raw: text };
   }
 
   return {

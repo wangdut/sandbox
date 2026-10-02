@@ -1,6 +1,6 @@
 import { TILE_SIZE, MAP_WIDTH, MAP_HEIGHT, GRASS, WATER, ORE, ROCK, CONCRETE, SAND, TREE,
          TEAM_PLAYER, TEAM_ENEMY, COLOR_PLAYER, COLOR_PLAYER_DARK, COLOR_ENEMY, COLOR_ENEMY_DARK,
-         COLOR_ALLIED, COLOR_ALLIED_DARK, COLOR_SOVIET, COLOR_SOVIET_DARK, TYPE_AIRCRAFT, TYPE_HELICOPTER, TYPE_AIRSHIP } from './constants.js';
+         COLOR_ALLIED, COLOR_ALLIED_DARK, COLOR_SOVIET, COLOR_SOVIET_DARK, TYPE_AIRCRAFT, TYPE_HELICOPTER, TYPE_AIRSHIP, TEAM_NEUTRAL } from './constants.js';
 import { BUILDING_DEFS, DEFENSE_DEFS, UNIT_DEFS, SUPER_WEAPONS, FACTION_ALLIED, FACTION_SOVIET } from './definitions.js';
 import { drawBuilding as drawBuildingSprite, drawUnit as drawUnitSprite } from './Sprites.js';
 
@@ -230,6 +230,9 @@ export class Renderer {
       } else if (e.faction === FACTION_SOVIET) {
         tc = COLOR_SOVIET;
         td = COLOR_SOVIET_DARK;
+      } else if (e.team === TEAM_NEUTRAL) {
+        tc = '#7f8c8d';
+        td = '#46505c';
       } else {
         tc = e.team === TEAM_PLAYER ? COLOR_PLAYER : COLOR_ENEMY;
         td = e.team === TEAM_PLAYER ? COLOR_PLAYER_DARK : COLOR_ENEMY_DARK;
@@ -238,6 +241,29 @@ export class Renderer {
       if (e.isBuilding) this.drawBuilding(e, ex, ey2, eS, tc, td, gameState, frameCount);
       else this.drawUnit(e, ex, ey2, tc, td, frameCount);
       ctx.globalAlpha = 1;
+
+      // 停放载具：加个"无人"标记，和成员开的车区分开
+      if (e.isMount) {
+        ctx.font = 'bold 9px "Microsoft YaHei", Arial, sans-serif';
+        ctx.textAlign = 'center';
+        ctx.fillStyle = 'rgba(241,196,15,.9)';
+        ctx.fillText('⚙ 载具', ex + eS / 2, ey2 - 10);
+        ctx.textAlign = 'left';
+      }
+      // 乘驾中的成员：补金色光环 + 名字（步兵形态已在 Sprites 里画过，这里只处理载具形态）
+      if (e.isMember && e.mountType) {
+        ctx.strokeStyle = '#f1c40f';
+        ctx.lineWidth = 1.5;
+        ctx.beginPath(); ctx.ellipse(ex + eS / 2, ey2 + eS - 4, 12, 5, 0, 0, Math.PI * 2); ctx.stroke();
+        ctx.font = 'bold 9px "Microsoft YaHei", Arial, sans-serif';
+        ctx.textAlign = 'center';
+        ctx.lineWidth = 2.5;
+        ctx.strokeStyle = 'rgba(0,0,0,0.85)';
+        ctx.strokeText(e.memberName || '', ex + eS / 2, ey2 - 12);
+        ctx.fillStyle = '#f1c40f';
+        ctx.fillText(e.memberName || '', ex + eS / 2, ey2 - 12);
+        ctx.textAlign = 'left';
+      }
 
       // Selection highlight
       if (e.selected) {
@@ -631,7 +657,7 @@ export class Renderer {
         if (!gameState.fogOfWar.isVisible(eCenterX, eCenterY)) continue;
       }
       
-      minimapCtx.fillStyle = e.team === TEAM_PLAYER ? '#4a9fd4' : '#e74c3c';
+      minimapCtx.fillStyle = e.team === TEAM_PLAYER ? '#4a9fd4' : (e.team === TEAM_NEUTRAL ? '#8a97a5' : '#e74c3c');
       var emx = (e.x + (e.isBuilding ? e.size / 2 : 0.5)) * sx;
       var emy = (e.y + (e.isBuilding ? e.size / 2 : 0.5)) * sy;
       var ds = e.isBuilding ? 3 : 2;

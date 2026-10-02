@@ -7,6 +7,7 @@
 
 import { TEAM_NAMES, TEAM_PLAYER } from '../constants.js';
 import { WEAPONS } from '../sandbox/memberDefs.js';
+import { UNIT_DEFS } from '../definitions.js';
 
 const ACTION_LIST = 'attack_move|attack|move|retreat|hold|guard';
 
@@ -24,7 +25,9 @@ export function buildSystemPrompt(spec, humanTeam) {
     '【目标】与队友配合，摧毁敌方「指挥所」；同时保护己方指挥所。',
     '【武器】机枪：射速快、专杀步兵，对建筑几乎无效；火箭筒：拆建筑/破装甲，射速慢。可用"武器"字段请求切换。',
     '【地形】地图 64×64。敌方指挥所旁有碉堡与重炮塔：进入其射程会被持续压制，从防御薄弱的方位（如基地背面）进攻更明智。系统寻路已会自动绕开防御射程。',
-    '【生存】血量低时撤退到己方指挥所附近可以缓慢回血；阵亡后 30 秒自动重生，但会浪费时间。',
+    '【生存】血量低于一半就应脱离战斗、撤回己方指挥所回血；别和碉堡/炮塔硬刚，它们火力强、拆得慢——用火箭筒远程点掉或干脆绕开。',
+    '【目标选择】优先摧毁敌方「指挥所」或击杀敌方成员；攻击"防御工事"收益低，除非它正好挡在必经之路。',
+    '【载具】己方指挥所旁有停放的载具（主战坦克/装甲车/炮艇机）。把"动作"设为 move 并让"目标"指向该载具的 id，即可走过去乘驾，获得更强的装甲与火力；乘驾后无法切换步兵武器。',
     '【台词】像游戏里的玩家说话，口语、简短，最多 20 字，不要长篇大论。',
     '【喊话】"对谁"填"队友"表示协同交流（如报点、分工），只有本方队友能看到；偶尔也可以（不要频繁）填"敌方"来挑衅或劝降，这条是全场公开的；填 null 就是普通自语。',
     '【言行一致】台词必须与"动作"一致：说绕后就给 attack_move/move 并指向目标，说要撤就给 retreat。绝不出现"嘴上说要绕后，动作却是原地不动"。',
@@ -58,7 +61,12 @@ function distTiles(a, b) {
 
 function kindOf(e) {
   if (e.isMember) return '成员';
-  if (e.isBuilding) return e.type === 'base' ? '指挥所' : '建筑';
+  if (e.isBuilding) {
+    if (e.type === 'base') return '指挥所';
+    if (e.category === 'defenses') return '防御工事';
+    return '建筑';
+  }
+  if (e.mountType) return '载具';
   return '单位';
 }
 
@@ -105,12 +113,22 @@ export function buildSnapshot(gameState, member, ctx) {
       };
     });
 
+  // 己方可乘驾载具（停放中），供成员自主选择上车
+  const mounts = gameState.entities
+    .filter(function (e) { return !e.dead && e.isMount && e.team === member.team; })
+    .map(function (e) {
+      return { id: e.id, 名称: e.name, 距离: distTiles(member, e), 位置: tileOf(e) };
+    });
+
   const snap = {
     你是: TEAM_NAMES[member.team] + '·' + member.memberName,
     自身: {
       血量: Math.ceil(member.hp) + '/' + member.maxHp,
       位置: tileOf(member),
-      武器: weapon.name,
+      武器: member.mountType
+        ? '载具·' + ((UNIT_DEFS[member.mountType] && UNIT_DEFS[member.mountType].name) || member.mountType)
+        : weapon.name,
+      载具: member.mountType || null,
       装填进度: member.fireCooldown > 0 ? '冷却中' : '就绪',
     },
     指挥所: {
@@ -124,6 +142,7 @@ export function buildSnapshot(gameState, member, ctx) {
       : null,
     当前动作: ctx.currentAction || null,
     可选目标: enemies,
+    可用载具: mounts,
     队友: mates,
     最近事件: ctx.events.slice(-4),
     队友消息: ctx.allyMsgs.slice(-3),

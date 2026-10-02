@@ -116,12 +116,12 @@ export class MemberSystem {
   }
 
   setWeapon(unit, mode) {
-    if (!unit || !unit.isMember || !WEAPONS[mode]) return false;
+    if (!unit || !unit.isMember || unit.mountType || !WEAPONS[mode]) return false;
     return applyWeapon(unit, mode);
   }
 
   toggleWeapon(unit) {
-    if (!unit || !unit.isMember) return false;
+    if (!unit || !unit.isMember || unit.mountType) return false;
     const next = unit.weaponMode === 'mg' ? 'rocket' : 'mg';
     applyWeapon(unit, next);
     unit.muzzleFlash = 4;

@@ -13,6 +13,7 @@ import { pickAttackTarget, performAttack, performBurstShot } from './Combat.js';
 
 export function updateUnitAI(gameState, unit, frameCount) {
   if (unit.chronoStun > 0) return; // 超时空传送后的短暂眩晕
+  if (unit.isMount) return;        // 停放载具：不移动不攻击，等成员来乘驾
   if (updateSpyInfiltration(gameState, unit)) return; // 间谍：触碰到敌方建筑即渗透并消失
   if (unit.type2 === 'harvester') { updateHarvesterAI(gameState, unit); return; }
   // 空军：弹药耗尽自动返场（最近基地/矿厂）补充

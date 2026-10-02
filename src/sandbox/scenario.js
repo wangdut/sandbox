@@ -4,8 +4,8 @@
 // 红方阵地在蓝方的中心对称点上，保证双方条件完全一致（公平 + 便于调试）。
 
 import {
-  MAP_WIDTH, MAP_HEIGHT, TILE_SIZE, GRASS, CONCRETE, SAND, TREE, ROCK,
-  TEAM_PLAYER, TEAM_ENEMY, FACTION_ALLIED, FACTION_SOVIET,
+  MAP_WIDTH, MAP_HEIGHT, TILE_SIZE, GRASS, CONCRETE, SAND, TREE, ROCK, WATER,
+  TEAM_PLAYER, TEAM_ENEMY, TEAM_NEUTRAL, FACTION_ALLIED, FACTION_SOVIET,
 } from '../constants.js';
 import { MEMBERS, createMember } from './memberDefs.js';
 
@@ -14,9 +14,16 @@ const BLUE_LAYOUT = {
   base: { x: 7, y: 52 },
   pillbox: { x: 11, y: 51 },
   turret: { x: 9, y: 49 },
+  aaNest: { x: 13, y: 49 },
+  mounts: [
+    { type: 'tank', x: 13, y: 55 },
+    { type: 'apc', x: 15, y: 55 },
+    { type: 'gunship', x: 15, y: 52 },
+  ],
   members: [
     { key: 'blue_1', x: 7, y: 56 },
     { key: 'blue_2', x: 9, y: 56 },
+    { key: 'blue_3', x: 11, y: 56 },
   ],
 };
 
@@ -32,6 +39,19 @@ const ROCK_CLUMPS = [
 // 沙地（占位视觉，不改变通行性）
 const SAND_CLUMPS = [
   { x: 10, y: 16 }, { x: 21, y: 33 }, { x: 3, y: 46 }, { x: 30, y: 28 },
+];
+
+// 河流：横贯中部的不可通行水域，只在三座桥上可渡河（形成咽喉要道）
+const RIVER = { y0: 27, y1: 31 };
+const BRIDGES = [
+  { x0: 16, x1: 20 },
+  { x0: 31, x1: 37 },   // 中部宽桥：斜向主路从这过河
+  { x0: 46, x1: 50 },
+];
+
+// 中立高楼大厦（蓝方侧定义，红方镜像）：可摧毁的掩体/遮挡物
+const HIGH_RISES = [
+  { x: 24, y: 17 }, { x: 40, y: 21 }, { x: 17, y: 38 },
 ];
 
 // 中心对称：size 为建筑占地边长（1 表示单格）
@@ -77,6 +97,29 @@ function decorate(map) {
   mirrored(SAND_CLUMPS).forEach(function (c) { stampClump(map, c, SAND, 2); });
 }
 
+/** 横贯中部的河流 + 三座桥（桥是混凝土，可通行） */
+function drawRiver(map) {
+  for (let y = RIVER.y0; y <= RIVER.y1; y++) {
+    for (let x = 0; x < MAP_WIDTH; x++) map.terrain[y][x] = WATER;
+  }
+  BRIDGES.forEach(function (b) {
+    for (let y = RIVER.y0; y <= RIVER.y1; y++) {
+      for (let x = b.x0; x <= b.x1; x++) map.terrain[y][x] = CONCRETE;
+    }
+  });
+}
+
+/** 中立高楼大厦：蓝方侧 + 中心镜像，双方都可摧毁的掩体 */
+function spawnNeutralBuildings(gameState) {
+  const positions = HIGH_RISES.concat(HIGH_RISES.map(function (h) { return mirror(h, 2); }));
+  positions.forEach(function (p) {
+    const e = gameState.spawnEntity('highrise', TEAM_NEUTRAL, p.x, p.y);
+    e.built = true;
+    e.buildProgress = 100;
+    e.faction = null;
+  });
+}
+
 function setConcretePad(map, p, size) {
   const s = size || 1;
   for (let dy = -1; dy <= s; dy++) {
@@ -120,7 +163,7 @@ function spawnStructures(gameState, layout, team, faction, flip) {
   setConcretePad(map, basePos, 3);
   map.setOccupancy(base);
 
-  ['pillbox', 'turret'].forEach(function (type) {
+  ['pillbox', 'turret', 'aaNest'].forEach(function (type) {
     const p = flip ? mirror(layout[type], 1) : layout[type];
     const b = gameState.spawnEntity(type, team, p.x, p.y);
     b.built = true;
@@ -131,6 +174,19 @@ function spawnStructures(gameState, layout, team, faction, flip) {
   });
 
   return base;
+}
+
+/** 在指挥所旁停放可乘驾载具（坦克/装甲车/炮艇机），成员走近即可上车 */
+function spawnMounts(gameState, layout, team, faction, flip) {
+  layout.mounts.forEach(function (m) {
+    const p = flip ? mirror(m, 1) : m;
+    const e = gameState.spawnEntity(m.type, team, p.x, p.y);
+    e.faction = faction;
+    e.isMount = true;          // 无人：不移动、不自动攻击
+    e.built = true;
+    e.buildProgress = 100;
+    e.damage = 0;              // 停放时无武装，乘驾后由成员继承定义里的武器数值
+  });
 }
 
 function spawnMembers(gameState, layout, team, flip) {
@@ -150,9 +206,11 @@ export function buildSandboxScenario(gameState, humanTeam) {
   const map = gameState.map;
   gameState.humanTeam = humanTeam === 1 ? 1 : 0;
   fillTerrain(map);
-  // 先铺路再撒装饰：装饰只落在草地上，因此主通路永不被树石堵住
+  // 先铺河与桥、再铺路、最后撒装饰：装饰只落在草地上，不会堵住通路
+  drawRiver(map);
   drawRoad(map);
   decorate(map);
+  spawnNeutralBuildings(gameState);
 
   gameState.playerFaction = FACTION_ALLIED;
   gameState.enemyFaction = FACTION_SOVIET;
@@ -161,8 +219,10 @@ export function buildSandboxScenario(gameState, humanTeam) {
   gameState.enemyCredits = 0;
 
   const blueBase = spawnStructures(gameState, BLUE_LAYOUT, TEAM_PLAYER, FACTION_ALLIED, false);
+  spawnMounts(gameState, BLUE_LAYOUT, TEAM_PLAYER, FACTION_ALLIED, false);
   spawnMembers(gameState, BLUE_LAYOUT, TEAM_PLAYER, false);
   spawnStructures(gameState, BLUE_LAYOUT, TEAM_ENEMY, FACTION_SOVIET, true);
+  spawnMounts(gameState, BLUE_LAYOUT, TEAM_ENEMY, FACTION_SOVIET, true);
   spawnMembers(gameState, BLUE_LAYOUT, TEAM_ENEMY, true);
 
   map.recomputeRegions();
