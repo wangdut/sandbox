@@ -54,8 +54,9 @@ ok('解析: move 缺目标被拒', !parseDecision('{"台词":"x","动作":"move"
 ok('解析: move 可指向实体 id（乘驾/接近）', parseDecision('{"台词":"上车","动作":"move","目标":{"类型":"unit","id":9}}').ok);
 ok('解析: 空内容给出可读错误', /max_tokens|未返回内容/.test(parseDecision('').error));
 
-const longSay = parseDecision('{"台词":"' + '字'.repeat(40) + '","对谁":"敌人","动作":"hold","目标":null}');
-ok('解析: 台词截断到 20 字', longSay.ok && longSay.decision.say.length === 20);
+const longSay = parseDecision('{"台词":"' + '字'.repeat(55) + '","对谁":"敌人","动作":"hold","目标":null}');
+ok('解析: 台词截断到 40 字', longSay.ok && longSay.decision.say.length === 40);
+eq('解析: 40 字台词原样保留', parseDecision('{"台词":"' + '字'.repeat(40) + '","动作":"hold"}').decision.say.length, 40);
 eq('解析: 非法"对谁"归零', longSay.decision.to, null);
 
 const posMove = parseDecision('{"台词":"过去","对谁":null,"动作":"move","目标":{"类型":"position","x":12,"y":8}}');

@@ -5,7 +5,7 @@
 
 export const CONFIG_KEY = 'vsandbox.config.v1';
 // 配置结构版本：用于把老存档里的"当时默认值"升级成新默认值
-export const CONFIG_SCHEMA = 2;
+export const CONFIG_SCHEMA = 3;
 // 老版本默认的每局 token 上限；存档里等于它即视为用户没自定义过
 const LEGACY_TOKEN_CAP = 80000;
 
@@ -33,7 +33,7 @@ export const DEFAULT_CONFIG = {
   // ---- 成本与频率控制 ----
   budget: {
     decisionCooldownSec: 6,   // 同一成员两次决策的最小间隔
-    chatCooldownSec: 30,      // 喊话（对队友/敌方）的最小间隔
+    chatCooldownSec: 18,      // 喊话（对队友/敌方）的最小间隔：配合需要更密的队内交流，但仍限速控 token
     idleIntervalSec: 12,      // 无战事时的自主决策节拍
     maxCallsPerMinute: 30,    // 全局每分钟调用上限
     maxTokensPerGame: 200000, // 全局每局 token 上限（超出后降级为脚本 AI）
@@ -64,6 +64,8 @@ export function migrateConfig(saved) {
   if ((out.schemaVersion || 1) < 2 && out.budget && out.budget.maxTokensPerGame === LEGACY_TOKEN_CAP) {
     out.budget = Object.assign({}, out.budget, { maxTokensPerGame: DEFAULT_CONFIG.budget.maxTokensPerGame });
   }
+  // 配音功能已移除：老存档残留的 tts 块没有任何读取方，清掉以免被深合并带回运行时
+  delete out.tts;
   out.schemaVersion = CONFIG_SCHEMA;
   return out;
 }

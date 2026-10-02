@@ -453,12 +453,15 @@ export class Renderer {
       for (var si = 0; si < gameState.speechBubbles.length; si++) {
         var sp = gameState.speechBubbles[si];
         if (sp.x + 180 < cullL || sp.x - 180 > cullR || sp.y + 160 < cullT || sp.y - 160 > cullB) continue;
-        // 自动折行：每行 11 个中文字符，最多两行
+        // 自动折行：每行 11 个中文字符，最多 4 行（台词上限 40 字）
+        var PER_LINE = 11, MAX_LINES = 4;
         var lines = [];
-        for (var ci = 0; ci < sp.text.length && lines.length < 2; ci += 11) {
-          lines.push(sp.text.slice(ci, ci + 11));
+        for (var ci = 0; ci < sp.text.length && lines.length < MAX_LINES; ci += PER_LINE) {
+          lines.push(sp.text.slice(ci, ci + PER_LINE));
         }
-        if (sp.text.length > 22) lines[1] = lines[1].slice(0, 10) + '…';
+        if (sp.text.length > PER_LINE * MAX_LINES) {
+          lines[MAX_LINES - 1] = lines[MAX_LINES - 1].slice(0, PER_LINE - 1) + '…';
+        }
         var lineH = 18;
         var boxW = 0;
         for (var li = 0; li < lines.length; li++) boxW = Math.max(boxW, ctx.measureText(lines[li]).width);

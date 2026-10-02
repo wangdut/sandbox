@@ -86,7 +86,7 @@ export function parseDecision(text) {
     return { ok: false, error: '动作非法: ' + action, raw: text };
   }
 
-  const say = clampText(obj['台词'] || obj.say, 20);
+  const say = clampText(obj['台词'] || obj.say, 40);
   if (!say) return { ok: false, error: '缺少台词', raw: text };
 
   let to = obj['对谁'];
@@ -121,7 +121,7 @@ export function parseDecision(text) {
       action: action,
       target: target,
       weapon: weaponKey,
-      intent: clampText(obj['说明'] || obj.intent, 15),
+      intent: clampText(obj['说明'] || obj.intent, 24),
       isMove: MOVE_ACTIONS.indexOf(action) >= 0,
     },
   };
