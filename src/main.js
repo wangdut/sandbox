@@ -1,4 +1,4 @@
-import { TILE_SIZE, MAP_WIDTH, MAP_HEIGHT, TEAM_PLAYER, TEAM_ENEMY, GRASS, WATER, ORE, SAND, CONCRETE, TREE } from './constants.js';
+import { TILE_SIZE, MAP_WIDTH, MAP_HEIGHT, TEAM_PLAYER, TEAM_ENEMY, GRASS, WATER, ORE, SAND, CONCRETE, TREE, FPS } from './constants.js';
 import { BUILDING_DEFS, DEFENSE_DEFS, UNIT_DEFS } from './definitions.js';
 import { Entity } from './Entity.js';
 import { GameState } from './GameState.js';
@@ -6,9 +6,10 @@ import { Renderer } from './Renderer.js';
 import { UIManager } from './UI.js';
 import { InputHandler } from './InputHandler.js';
 import { SandboxAI } from './sandbox/SandboxAI.js';
-import { buildSandboxScenario } from './sandbox/scenario.js';
+import { buildSandboxScenario, findHQ } from './sandbox/scenario.js';
 import { MemberSystem } from './sandbox/memberSystem.js';
 import { MemberPanel } from './ui/MemberPanel.js';
+import { BudgetPanel } from './ui/BudgetPanel.js';
 import { ChatPanel } from './ui/ChatPanel.js';
 import { loadConfig } from './agents/config.js';
 import { AgentManager } from './agents/AgentManager.js';
@@ -20,7 +21,7 @@ import { setNotifier } from './Notifications.js';
 import { PRISM_LINK_RANGE, GUARD_CHASE_RANGE, REPAIR_BAY_RANGE, REPAIR_BAY_HEAL,
          SPY_INFILTRATE_DIST, SPY_BLACKOUT_FRAMES, PRODUCER_BUILDINGS } from './GameTuning.js';
 import { pickAttackTarget, countLinkedPrisms, performAttack, performBurstShot,
-         updateProjectiles, updateExplosions, updateFloatingTexts, updateSmoke } from './Combat.js';
+         updateProjectiles, updateExplosions, updateFloatingTexts, updateSmoke, updateSpeechBubbles } from './Combat.js';
 import { updateUnitAI, updateHarvesterAI, moveUnit, updateSpyInfiltration } from './UnitAI.js';
 import { updateBuildingAI, updateRepairBays, spawnProducedUnit, findProducingBuilding } from './Buildings.js';
 
@@ -29,7 +30,7 @@ setNotifier(notify);
 
 let canvas, minimapCanvas, ctx, minimapCtx;
 let gameState, renderer, ui, input, sandboxAI, saveManager, memberSystem, memberPanel;
-let commandBus, agentManager, chatPanel, sandboxConfig;
+let commandBus, agentManager, chatPanel, sandboxConfig, budgetPanel;
 let camera = { x: 0, y: 0, zoom: 1 };
 let selectedUnits = [], selectedBuilding = null;
 let placingBuilding = false, placingType = null;
@@ -141,7 +142,8 @@ function startGame(diff) {
   memberSystem.init(gameState);
   memberPanel = new MemberPanel();
   memberPanel.init();
-  memberPanel.update(gameState, memberSystem);
+  budgetPanel = new BudgetPanel();
+  budgetPanel.init();
 
   // ===== LLM 大脑层（M2）=====
   sandboxConfig = loadConfig();
@@ -215,29 +217,50 @@ function wireSuperWeaponCallbacks(swm) {
   };
 }
 
-function gameLoop() {
+// 固定步长主循环用：把「帧」与真实时间对齐
+const FRAME_MS = 1000 / FPS;
+const MAX_STEPS_PER_RAF = 8;   // 单次 rAF 最多补多少帧，避免切后台回来一次性狂算
+let lastFrameTime = 0;
+let accumulator = 0;
+
+function gameLoop(timestamp) {
   if (!gameRunning) return;
+  // 120Hz/144Hz 屏幕上 rAF 每秒触发上百次，而引擎所有计时（冷却/射速/重生）都按
+  // 60FPS 的「帧」计算。这里用累加器把更新固定成每秒 60 帧，渲染仍按屏幕刷新率走，
+  // 否则高刷屏上游戏会整体加速一倍（冷却、token 消耗、阵亡节奏全都被压缩）。
+  const now = typeof timestamp === 'number' ? timestamp : performance.now();
+  if (!lastFrameTime) lastFrameTime = now;
+  let dt = now - lastFrameTime;
+  lastFrameTime = now;
+  if (dt > 250) dt = 250;   // 长时间挂起（切标签页）不补算
+
   if (!gamePaused) {
-    for (var s = 0; s < gameSpeed; s++) {
+    accumulator += dt * gameSpeed;
+    let steps = 0;
+    while (accumulator >= FRAME_MS && steps < MAX_STEPS_PER_RAF) {
+      accumulator -= FRAME_MS;
+      steps++;
       frameCount++;
       updateCamera();
       updateEntities();
       updateProjectiles(gameState);
       updateExplosions(gameState);
       updateFloatingTexts(gameState);
+      updateSpeechBubbles(gameState);
       updateSmoke(gameState);
       updateMinimapAlerts();
       updateResources();
       updateEnemyAI();
       memberSystem.update(gameState, frameCount);
-      memberPanel.update(gameState, memberSystem);
       agentManager.update(gameState, frameCount);
-      if (frameCount % 30 === 0) updateAgentStats();
+      if (frameCount % 6 === 0) updateHud();
       ui.updateNotification();
       checkGameOver();
       if (gameState.gameOver) break;
     }
+    if (steps >= MAX_STEPS_PER_RAF) accumulator = 0;  // 落后太多就丢弃，防雪崩
   } else {
+    accumulator = 0;
     updateCamera();
   }
   ui.updateUI(gameState, gameStartTime, input ? input._callbacks.selectedUnits : selectedUnits,
@@ -399,17 +422,45 @@ function sendQuickCommand(kind) {
   if (n === 0) chatPanel.addSystem('（当前没有可用成员，可能在等待重生）');
 }
 
-/** 聊天面板右侧的 token / 调用计数 */
-function updateAgentStats() {
-  if (!chatPanel || !agentManager) return;
+/** HUD 统一刷新：指挥所血条、成员卡片、带宽预算、token 计数 */
+function updateHud() {
+  if (!gameState) return;
+  // 顶部：双方指挥所血量（沙盘的胜负目标，必须一眼可见）
+  const blueHq = findHQ(gameState, TEAM_PLAYER);
+  const redHq = findHQ(gameState, TEAM_ENEMY);
+  setHqBar('hqBarBlue', 'hqHpBlue', blueHq);
+  setHqBar('hqBarRed', 'hqHpRed', redHq);
+
+  if (!agentManager) return;
   const s = agentManager.stats();
-  if (!s.llmReady) {
-    chatPanel.setStats('脚本 AI 模式');
+  if (memberPanel) memberPanel.update(gameState, memberSystem, s);
+  if (budgetPanel) budgetPanel.update(s, sandboxConfig ? sandboxConfig.budget : null);
+  if (chatPanel) {
+    if (!s.llmReady) {
+      chatPanel.setStats('脚本 AI 模式');
+    } else {
+      const cap = sandboxConfig && sandboxConfig.budget ? sandboxConfig.budget.maxTokensPerGame : 0;
+      chatPanel.setStats('token ' + s.totalTokens + (cap > 0 ? '/' + cap : '') +
+        ' · 调用 ' + s.totalCalls + ' · 失败 ' + s.totalErrors + (s.inFlight ? ' · 思考中…' : ''));
+    }
+  }
+}
+
+function setHqBar(barId, hpId, hq) {
+  const bar = document.getElementById(barId);
+  const hpEl = document.getElementById(hpId);
+  if (!bar || !hpEl) return;
+  if (!hq) {
+    if (bar.style.width !== '0%') { bar.style.width = '0%'; }
+    if (hpEl.textContent !== '已失守') hpEl.textContent = '已失守';
     return;
   }
-  const cap = sandboxConfig && sandboxConfig.budget ? sandboxConfig.budget.maxTokensPerGame : 0;
-  chatPanel.setStats('token ' + s.totalTokens + (cap > 0 ? '/' + cap : '') +
-    ' · 调用 ' + s.totalCalls + ' · 失败 ' + s.totalErrors + (s.inFlight ? ' · 思考中…' : ''));
+  const pct = Math.max(0, Math.round(hq.hp / hq.maxHp * 100));
+  const width = pct + '%';
+  if (bar.style.width !== width) bar.style.width = width;
+  bar.style.background = pct > 60 ? '#2ecc71' : (pct > 30 ? '#f1c40f' : '#e74c3c');
+  const txt = String(Math.ceil(hq.hp));
+  if (hpEl.textContent !== txt) hpEl.textContent = txt;
 }
 
 function updateEnemyAI() {

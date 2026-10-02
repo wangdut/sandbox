@@ -173,6 +173,21 @@ export function updateFloatingTexts(gameState) {
   }
 }
 
+export function updateSpeechBubbles(gameState) {
+  var list = gameState.speechBubbles;
+  if (!list) return;
+  for (var i = list.length - 1; i >= 0; i--) {
+    var sp = list[i];
+    sp.timer--;
+    // 单位阵亡后气泡停在原地淡出
+    if (sp.entity && !sp.entity.dead) {
+      sp.x = sp.entity.getCenterX();
+      sp.y = sp.entity.getCenterY();
+    }
+    if (sp.timer <= 0) list.splice(i, 1);
+  }
+}
+
 export function updateSmoke(gameState) {
   for (var i = gameState.smokeParticles.length - 1; i >= 0; i--) {
     var sm = gameState.smokeParticles[i];

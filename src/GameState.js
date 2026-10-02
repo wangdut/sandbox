@@ -14,6 +14,8 @@ export class GameState {
     this.explosions = [];
     this.floatingTexts = [];
     this.smokeParticles = [];
+    // 成员喊话气泡（沙盘社交可视化）：跟随单位显示 4 秒
+    this.speechBubbles = [];
     this.minimapAlerts = [];
     this.playerCredits = 15000;
     this.enemyCredits = 1500;
@@ -261,6 +263,27 @@ export class GameState {
 
   addFloatingText(x, y, text, color) {
     this.floatingTexts.push({ x, y, text, color: color || '#fff', timer: 50, vy: -0.7 });
+  }
+
+  /**
+   * 成员喊话气泡：跟随实体移动，持续约 4 秒（比飘字长得多，方便观战阅读）
+   */
+  addSpeech(entity, text, color) {
+    if (!entity || !text) return;
+    // 同一成员只保留最新一条，避免叠字
+    for (let i = this.speechBubbles.length - 1; i >= 0; i--) {
+      if (this.speechBubbles[i].entity === entity) this.speechBubbles.splice(i, 1);
+    }
+    this.speechBubbles.push({
+      entity: entity,
+      x: entity.getCenterX(),
+      y: entity.getCenterY(),
+      text: text,
+      color: color || '#f1c40f',
+      timer: 240,
+      maxTimer: 240,
+    });
+    if (this.speechBubbles.length > 12) this.speechBubbles.shift();
   }
 
   addSmoke(x, y) {

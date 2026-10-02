@@ -419,6 +419,50 @@ export class Renderer {
     }
     ctx.textAlign = 'left';
 
+    // 成员喊话气泡：跟随单位，显示约 4 秒后淡出（沙盘社交的可视化）
+    if (gameState.speechBubbles && gameState.speechBubbles.length > 0) {
+      ctx.textAlign = 'center';
+      ctx.font = 'bold 10px "Microsoft YaHei", Arial, sans-serif';
+      for (var si = 0; si < gameState.speechBubbles.length; si++) {
+        var sp = gameState.speechBubbles[si];
+        if (sp.x + 140 < cullL || sp.x - 140 > cullR || sp.y + 120 < cullT || sp.y - 120 > cullB) continue;
+        // 自动折行：每行 11 个中文字符，最多两行
+        var lines = [];
+        for (var ci = 0; ci < sp.text.length && lines.length < 2; ci += 11) {
+          lines.push(sp.text.slice(ci, ci + 11));
+        }
+        if (sp.text.length > 22) lines[1] = lines[1].slice(0, 10) + '…';
+        var lineH = 13;
+        var boxW = 0;
+        for (var li = 0; li < lines.length; li++) boxW = Math.max(boxW, ctx.measureText(lines[li]).width);
+        boxW += 12;
+        var boxH = lines.length * lineH + 8;
+        var bx = sp.x - boxW / 2, by = sp.y - 30 - boxH;
+        var alpha = sp.timer > 40 ? 1 : sp.timer / 40;
+        ctx.globalAlpha = alpha * 0.9;
+        ctx.fillStyle = 'rgba(6, 6, 16, 0.92)';
+        ctx.fillRect(bx, by, boxW, boxH);
+        ctx.globalAlpha = alpha;
+        ctx.strokeStyle = sp.color;
+        ctx.lineWidth = 1;
+        ctx.strokeRect(bx + 0.5, by + 0.5, boxW - 1, boxH - 1);
+        // 指向单位的小三角
+        ctx.beginPath();
+        ctx.moveTo(sp.x - 5, by + boxH);
+        ctx.lineTo(sp.x + 5, by + boxH);
+        ctx.lineTo(sp.x, by + boxH + 6);
+        ctx.closePath();
+        ctx.fillStyle = 'rgba(6, 6, 16, 0.92)';
+        ctx.fill();
+        ctx.fillStyle = sp.color;
+        for (var ti = 0; ti < lines.length; ti++) {
+          ctx.fillText(lines[ti], sp.x, by + 14 + ti * lineH);
+        }
+        ctx.globalAlpha = 1;
+      }
+      ctx.textAlign = 'left';
+    }
+
     // 战争迷雾：在世界坐标系内一次 drawImage 覆盖未探索/无视野区域
     if (gameState.fogOfWar) {
       gameState.fogOfWar.render(ctx);

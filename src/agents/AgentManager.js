@@ -38,6 +38,14 @@ function findEntityById(gameState, id) {
   return null;
 }
 
+/**
+ * 喊话是否允许广播（阵营内协作 / 跨阵营劝降共用的硬冷却）
+ * 抽成纯函数便于单测：token 成本控制的关键闸门，必须能被验证。
+ */
+export function canDeliverShout(lastChatFrame, frameCount, cooldownSec) {
+  return frameCount - lastChatFrame >= cooldownSec * FPS;
+}
+
 export class AgentManager {
   constructor() {
     this.agents = new Map();
@@ -53,6 +61,9 @@ export class AgentManager {
     this.totalErrors = 0;
     this.budgetExceeded = false;
     this.lastBudgetWarnFrame = -99999;
+    // 社交统计（M3：用于验证喊话频率受控）
+    this.chatCounts = { self: 0, ally: 0, enemy: 0 };
+    this.shoutLog = [];
   }
 
   init(opts) {
@@ -489,7 +500,7 @@ export class AgentManager {
     if (!decision.say) return;
     const teamName = TEAM_NAMES[agent.spec.team];
     const deliverChat = decision.to !== null &&
-      frameCount - agent.lastChatFrame >= this.cfg.budget.chatCooldownSec * FPS;
+      canDeliverShout(agent.lastChatFrame, frameCount, this.cfg.budget.chatCooldownSec);
     if (deliverChat) agent.lastChatFrame = frameCount;
 
     const msg = {
@@ -503,7 +514,31 @@ export class AgentManager {
     };
     this.hooks.onChat(msg);
 
-    if (!deliverChat) return;
+    // 战场气泡：让"成员在说话"这件事在上帝视角里可见
+    const bubbleColor = decision.to === '敌方'
+      ? '#f1c40f'
+      : (agent.spec.team === TEAM_PLAYER ? '#7fc4ec' : '#ef8b7c');
+    const prefix = decision.to === '敌方' ? '📣 ' : (decision.to === '队友' ? '💬 ' : '');
+    gameState.addSpeech(member, prefix + decision.say, bubbleColor);
+
+    if (!deliverChat) {
+      this.chatCounts.self++;
+      return;
+    }
+    if (decision.to === '队友') this.chatCounts.ally++;
+    if (decision.to === '敌方') this.chatCounts.enemy++;
+    this.shoutLog.push({
+      key: agent.spec.key,
+      name: agent.spec.name,
+      team: agent.spec.team,
+      to: decision.to,
+      text: decision.say,
+      at: Date.now(),
+      // 发起决策的帧号（供验证喊话间隔；注意不是响应到达的帧号）
+      frame: frameCount,
+    });
+    if (this.shoutLog.length > 40) this.shoutLog.shift();
+
     const line = agent.spec.name + '：' + decision.say;
     this.agents.forEach(function (other) {
       if (other === agent) return;
@@ -582,6 +617,8 @@ export class AgentManager {
       totalCalls: this.totalCalls,
       totalErrors: this.totalErrors,
       inFlight: this.inFlight,
+      chatCounts: { self: this.chatCounts.self, ally: this.chatCounts.ally, enemy: this.chatCounts.enemy },
+      shoutLog: this.shoutLog.slice(-10),
       perMember: perMember,
     };
   }

@@ -57,7 +57,10 @@ export class ChatPanel {
 
   /** 系统提示（上帝命令、通讯中断等） */
   addSystem(text) {
-    this._append({ kind: 'system', text: text });
+    const div = document.createElement('div');
+    div.className = 'chat-entry system';
+    div.textContent = text;
+    this._push(div);
   }
 
   /**
@@ -66,21 +69,26 @@ export class ChatPanel {
    */
   addMessage(msg) {
     const teamName = TEAM_NAMES[msg.team] || '';
-    let prefix = '[' + teamName + '] ' + msg.name + '：';
-    if (msg.to) prefix = '[' + teamName + '] ' + msg.name + '→' + msg.to + '：';
-    this._append({
-      kind: msg.team === 0 ? 'blue' : 'red',
-      text: prefix + msg.text,
-      highlight: !!msg.to,
-    });
+    const div = document.createElement('div');
+    div.className = 'chat-entry ' + (msg.team === 0 ? 'blue' : 'red');
+    if (msg.to === '敌方') div.classList.add('shout-enemy');
+    if (msg.to === '队友') div.classList.add('shout-ally');
+
+    const who = document.createElement('span');
+    who.className = 'who';
+    who.textContent = '[' + teamName + '] ' + msg.name + (msg.to ? '→' + msg.to : '') + '：';
+    const body = document.createElement('span');
+    body.className = 'body';
+    // 台词来自 LLM，用 textContent 注入，避免 HTML 注入
+    body.textContent = (msg.to === '敌方' ? '📣 ' : (msg.to === '队友' ? '💬 ' : '')) + msg.text;
+
+    div.appendChild(who);
+    div.appendChild(body);
+    this._push(div);
   }
 
-  _append(entry) {
+  _push(div) {
     if (!this._dom || !this._dom.log) return;
-    const div = document.createElement('div');
-    div.className = 'chat-entry ' + (entry.kind || '');
-    div.textContent = entry.text;
-    if (entry.highlight) div.classList.add('shout');
     this._dom.log.appendChild(div);
     while (this._dom.log.childNodes.length > this.maxEntries) {
       this._dom.log.removeChild(this._dom.log.firstChild);

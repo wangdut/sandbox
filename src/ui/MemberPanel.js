@@ -1,8 +1,10 @@
-// 成员面板：显示 4 名虚拟成员的血量、武器、存活状态与重生倒计时
+// 成员面板：4 名虚拟成员的卡片（头像、血条、武器、当前意图、最近台词、token 消耗）
 //
-// M1 只做状态展示；M2/M3 会在此基础上加入「当前意图、台词、token 消耗」等信息。
+// 信息来自两处：memberSystem（存活/血量/武器/重生倒计时）+ AgentManager.stats()（意图/台词/token）
 
+import { TEAM_NAMES, TEAM_PLAYER } from '../constants.js';
 import { WEAPONS } from '../sandbox/memberDefs.js';
+import { escapeHtml } from './escape.js';
 
 export class MemberPanel {
   constructor() {
@@ -11,45 +13,72 @@ export class MemberPanel {
   }
 
   init() {
-    this._dom = {
-      list: document.getElementById('memberList'),
-    };
+    this._dom = { list: document.getElementById('memberList') };
     this._sig = '';
     if (this._dom.list) this._dom.list.innerHTML = '';
   }
 
-  update(gameState, memberSystem) {
+  /**
+   * @param gameState
+   * @param memberSystem
+   * @param agentStats AgentManager.stats() 的结果（可为 null，表示未接入 LLM 层）
+   */
+  update(gameState, memberSystem, agentStats) {
     if (!this._dom || !this._dom.list || !memberSystem) return;
-    const slots = memberSystem.slotStatus();
+    const slots = memberSystem.slotStatus().slice().sort(function (a, b) {
+      return a.spec.team - b.spec.team; // 蓝方在前
+    });
+    const byKey = {};
+    if (agentStats && agentStats.perMember) {
+      agentStats.perMember.forEach(function (p) { byKey[p.key] = p; });
+    }
 
-    // 变更检测：签名不变就跳过 DOM 写入
     let sig = '';
     slots.forEach(function (s) {
-      sig += s.spec.key + '|' + (s.alive ? Math.ceil(s.entity.hp) + ':' + s.entity.weaponMode : 'dead:' + s.respawnLeftSec) + ';';
+      const a = byKey[s.spec.key] || {};
+      sig += s.spec.key + '|' + (s.alive ? Math.ceil(s.entity.hp) + s.entity.weaponMode : 'dead' + s.respawnLeftSec) +
+        '|' + (a.intent || '') + '|' + (a.lastSay || '') + '|' + Math.round((a.tokens || 0) / 100) + '|' + (a.calls || 0) +
+        '|' + (a.inFlight ? 1 : 0) + '|' + (a.degraded ? 1 : 0) + ';';
     });
     if (sig === this._sig) return;
     this._sig = sig;
 
     const html = slots.map(function (s) {
       const spec = s.spec;
-      const cls = spec.team === 0 ? 'blue' : 'red';
-      const teamName = spec.team === 0 ? '蓝方' : '红方';
+      const a = byKey[spec.key] || {};
+      const isBlue = spec.team === TEAM_PLAYER;
+      const cls = (isBlue ? 'blue' : 'red') + (s.alive ? '' : ' dead');
+      const sideLabel = isBlue ? '你指挥' : '电脑';
+      const avatar = '<div class="mp-avatar ' + (isBlue ? 'blue' : 'red') + '">' + escapeHtml(spec.name.charAt(0)) + '</div>';
+
       if (!s.alive) {
-        return '<div class="mp-card ' + cls + ' dead">' +
-          '<div class="mp-name">' + spec.name + '<span class="mp-team">' + teamName + '</span></div>' +
-          '<div class="mp-state">阵亡 · ' + s.respawnLeftSec + 's 后重生</div>' +
-          '</div>';
+        return '<div class="mp-card ' + cls + '">' +
+          avatar +
+          '<div class="mp-main">' +
+          '<div class="mp-name">' + escapeHtml(spec.name) +
+          '<span class="mp-side">' + TEAM_NAMES[spec.team] + ' · ' + sideLabel + '</span></div>' +
+          '<div class="mp-state">阵亡 · ' + s.respawnLeftSec + 's 后重生（已重生 ' + s.respawnCount + ' 次）</div>' +
+          '</div></div>';
       }
+
       const u = s.entity;
       const pct = Math.max(0, Math.round(u.hp / u.maxHp * 100));
       const w = WEAPONS[u.weaponMode] || WEAPONS.mg;
       const barColor = pct > 60 ? '#2ecc71' : (pct > 30 ? '#f1c40f' : '#e74c3c');
+      const stateLabel = a.degraded ? '脚本模式' : (a.inFlight ? '思考中…' : '在线');
+      const tokens = a.tokens ? (a.tokens >= 1000 ? (a.tokens / 1000).toFixed(1) + 'k' : String(a.tokens)) : '0';
+
       return '<div class="mp-card ' + cls + '">' +
-        '<div class="mp-name">' + spec.name + '<span class="mp-team">' + teamName + '</span></div>' +
-        '<div class="mp-bar"><i style="width:' + pct + '%;background:' + barColor + '"></i></div>' +
-        '<div class="mp-meta">HP ' + Math.ceil(u.hp) + '/' + u.maxHp + ' · ' + w.icon + ' ' + w.name + '</div>' +
-        (s.respawnCount > 0 ? '<div class="mp-state dim">已重生 ' + s.respawnCount + ' 次</div>' : '') +
-        '</div>';
+        avatar +
+        '<div class="mp-main">' +
+        '<div class="mp-name">' + escapeHtml(spec.name) +
+        '<span class="mp-side">' + TEAM_NAMES[spec.team] + ' · ' + sideLabel + '</span></div>' +
+        '<div class="mp-bar"><i style="width:' + pct + '%;background:' + barColor + '"></i>' +
+        '<span class="mp-hp">' + Math.ceil(u.hp) + '/' + u.maxHp + '</span></div>' +
+        '<div class="mp-meta">' + w.icon + ' ' + w.name + ' · ' + stateLabel + ' · ' + tokens + ' tok</div>' +
+        (a.intent ? '<div class="mp-intent">意图：' + escapeHtml(a.intent) + '</div>' : '') +
+        (a.lastSay ? '<div class="mp-say">「' + escapeHtml(a.lastSay) + '」</div>' : '') +
+        '</div></div>';
     }).join('');
 
     this._dom.list.innerHTML = html;

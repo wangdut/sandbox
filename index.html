@@ -53,6 +53,18 @@
     <span class="res-label">单位</span>
     <span class="res-value" id="resUnits">0/25</span>
   </div>
+  <div id="hqStatus">
+    <div class="hq-bar blue">
+      <span class="hq-name">蓝方指挥所</span>
+      <div class="hq-track"><i id="hqBarBlue"></i></div>
+      <span class="hq-hp" id="hqHpBlue">1800</span>
+    </div>
+    <div class="hq-bar red">
+      <span class="hq-name">红方指挥所</span>
+      <div class="hq-track"><i id="hqBarRed"></i></div>
+      <span class="hq-hp" id="hqHpRed">1800</span>
+    </div>
+  </div>
   <span id="gameTime">00:00</span>
   <button id="pauseBtn" onclick="togglePause()">暂停</button>
   <button id="speedBtn" onclick="cycleSpeed()">1×</button>
@@ -64,6 +76,10 @@
   <div id="memberPanel">
     <div id="memberPanelHeader">虚拟成员</div>
     <div id="memberList"></div>
+  </div>
+  <div id="budgetPanel">
+    <div id="budgetHeader">带宽预算</div>
+    <div id="budgetBody"></div>
   </div>
   <div id="buildTabs">
     <div class="build-tab active" data-tab="buildings" onclick="switchTab('buildings')">建筑</div>
