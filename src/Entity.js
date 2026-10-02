@@ -119,9 +119,11 @@ export class Entity {
     this.memberName = null;  // 显示名（雷霆/寒鸦/烈焰/夜枭）
     this.weaponMode = 'mg';  // 当前武器档案键（见 sandbox/memberDefs.js）
     this.avoidDanger = false; // 寻路时是否规避敌方防御射程（成员开启：让"绕后"真的绕）
-    this.mountType = null;   // 成员当前乘驾的载具类型（tank/apc/gunship）；null=步行
+    this.mountType = null;   // 成员当前乘驾的载具类型（tank/apc/gunship/bomber）；null=步行
     this.isMount = false;    // 无人乘驾的停放载具（不移动、不自动攻击）
     this.boardTarget = null; // 成员准备乘驾的目标载具实体
+    this.ejectCooldown = 0;  // 弹射逃生冷却（帧）：冷却中再次载具被毁即阵亡
+    this.ejectInvuln = 0;    // 弹射后的无敌剩余帧数，归零时解除 invulnerable
     
     // 渲染相关
     this.renderTurretAngle = 0;

@@ -94,15 +94,17 @@ export function createMember(gameState, spec, x, y) {
 
 /**
  * 成员乘驾载具：把成员实体"变身"成载具（保留大脑与姓名），武器切换暂时由载具接管。
- * 载具被打爆 → 成员阵亡 → 30 秒后按步兵重生。
+ * 载具被打爆 → 弹射逃生（见 MemberSystem.tryEject），成员以残血步兵形态存活。
  */
 export function boardVehicle(member, mountEntity) {
   const def = UNIT_DEFS[mountEntity.type];
   if (!member || !def || !def.mount) return false;
+  // 按上车前的血量比例折算载具血量（下限 50%），否则残血成员上车即满血，成了免费治疗
+  const ratio = Math.max(0.5, Math.min(1, member.hp / member.maxHp));
   member.mountType = mountEntity.type;
   member.isMount = false;
   member.maxHp = def.hp;
-  member.hp = def.hp;
+  member.hp = Math.round(def.hp * ratio);
   member.speed = def.speed;
   member.damage = def.damage;
   member.range = def.range;

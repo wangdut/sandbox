@@ -13,14 +13,18 @@ const PERSISTED_FIELDS = [
   'veterancy', 'kills', 'ironCurtain', 'chronoStun', 'invulnerable',
   'faction', 'z', 'ammo', 'maxAmmo', 'returningToBase', 'harvestTimer', 'selected',
   // 出厂单位赴集结点标记：漏掉会让读档后单位停在原地不再转守卫
-  'autoGuard'
+  'autoGuard',
+  // 成员与乘驾载具：漏掉会让读档后成员退化成普通步兵、停放载具失去"可上车"标记
+  'isMember', 'memberKey', 'memberName', 'weaponMode', 'mountType', 'isMount',
+  'isAirUnit', 'armorType', 'damageType', 'avoidDanger',
+  'ejectCooldown', 'ejectInvuln'
 ];
 // {x, y} 坐标点字段
 const POINT_FIELDS = ['harvestTarget', 'rallyPoint', 'attackMoveTarget', 'guardPos'];
 // 需要复制的数组字段
 const ARRAY_FIELDS = ['requires', 'productionQueue'];
 // 实体引用字段：存 id，读档时按 id 回填
-const REF_FIELDS = ['attackTarget', 'burstTarget'];
+const REF_FIELDS = ['attackTarget', 'burstTarget', 'boardTarget'];
 
 export class SaveManager {
   save(gameState, camera, difficulty, frameCount, enemyAI) {
@@ -180,6 +184,7 @@ export class SaveManager {
         var aed = save.entities[ai];
         if (aed.attackTarget && entityMap[aed.attackTarget]) ae.attackTarget = entityMap[aed.attackTarget];
         if (aed.burstTarget && entityMap[aed.burstTarget]) ae.burstTarget = entityMap[aed.burstTarget];
+        if (aed.boardTarget && entityMap[aed.boardTarget]) ae.boardTarget = entityMap[aed.boardTarget];
       }
 
       // 阵营回填：v5 之前的存档没有 playerFaction/enemyFaction，

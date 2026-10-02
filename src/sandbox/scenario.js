@@ -19,6 +19,7 @@ const BLUE_LAYOUT = {
     { type: 'tank', x: 13, y: 55 },
     { type: 'apc', x: 15, y: 55 },
     { type: 'gunship', x: 15, y: 52 },
+    { type: 'bomber', x: 17, y: 55 },
   ],
   members: [
     { key: 'blue_1', x: 7, y: 56 },
@@ -176,16 +177,31 @@ function spawnStructures(gameState, layout, team, faction, flip) {
   return base;
 }
 
-/** 在指挥所旁停放可乘驾载具（坦克/装甲车/炮艇机），成员走近即可上车 */
+/** 生成一辆停放中的可乘驾载具（无人：不移动、不自动攻击；乘驾后由成员继承武器数值） */
+export function spawnParkedMount(gameState, type, team, x, y) {
+  const e = gameState.spawnEntity(type, team, x, y);
+  e.faction = team === TEAM_PLAYER ? FACTION_ALLIED : FACTION_SOVIET;
+  e.isMount = true;
+  e.built = true;
+  e.buildProgress = 100;
+  e.damage = 0;
+  return e;
+}
+
+/** 某方的载具停放点（红方由蓝方布局中心对称推导） */
+export function mountPads(team) {
+  const flip = team === TEAM_ENEMY;
+  return BLUE_LAYOUT.mounts.map(function (m) {
+    const p = flip ? mirror(m, 1) : m;
+    return { type: m.type, x: p.x, y: p.y };
+  });
+}
+
+/** 在指挥所旁停放可乘驾载具（坦克/装甲车/炮艇机/轰炸机），成员走近即可上车 */
 function spawnMounts(gameState, layout, team, faction, flip) {
   layout.mounts.forEach(function (m) {
     const p = flip ? mirror(m, 1) : m;
-    const e = gameState.spawnEntity(m.type, team, p.x, p.y);
-    e.faction = faction;
-    e.isMount = true;          // 无人：不移动、不自动攻击
-    e.built = true;
-    e.buildProgress = 100;
-    e.damage = 0;              // 停放时无武装，乘驾后由成员继承定义里的武器数值
+    spawnParkedMount(gameState, m.type, team, p.x, p.y);
   });
 }
 

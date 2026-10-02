@@ -9,7 +9,7 @@ import { TEAM_NAMES, TEAM_PLAYER } from '../constants.js';
 import { WEAPONS } from '../sandbox/memberDefs.js';
 import { UNIT_DEFS } from '../definitions.js';
 
-const ACTION_LIST = 'attack_move|attack|move|retreat|hold|guard';
+const ACTION_LIST = 'attack_move|attack|move|retreat|hold|guard|board|dismount';
 
 /** 成员的固定人设 system prompt
  * @param spec 成员名册条目
@@ -27,7 +27,7 @@ export function buildSystemPrompt(spec, humanTeam) {
     '【地形】地图 64×64。敌方指挥所旁有碉堡与重炮塔：进入其射程会被持续压制，从防御薄弱的方位（如基地背面）进攻更明智。系统寻路已会自动绕开防御射程。',
     '【生存】血量低于一半就应脱离战斗、撤回己方指挥所回血；别和碉堡/炮塔硬刚，它们火力强、拆得慢——用火箭筒远程点掉或干脆绕开。',
     '【目标选择】优先摧毁敌方「指挥所」或击杀敌方成员；攻击"防御工事"收益低，除非它正好挡在必经之路。',
-    '【载具】己方指挥所旁有停放的载具（主战坦克/装甲车/炮艇机）。把"动作"设为 move 并让"目标"指向该载具的 id，即可走过去乘驾，获得更强的装甲与火力；乘驾后无法切换步兵武器。',
+    '【载具】己方指挥所旁停放着载具（主战坦克/装甲车/炮艇机/轰炸机），见"可用载具"列表（都是空闲的）。想上车：把"动作"设为 board、"目标"指向该载具 id，你会走过去乘驾，获得更强装甲与火力（对建筑伤害大增）；想下车：动作 dismount（无需目标）。乘驾中无法切换步兵武器；载具快被打爆时（血量低于四分之一）应 dismount 弃车保命。',
     '【台词】像游戏里的玩家说话，口语、简短，最多 20 字，不要长篇大论。',
     '【喊话】"对谁"填"队友"表示协同交流（如报点、分工），只有本方队友能看到；偶尔也可以（不要频繁）填"敌方"来挑衅或劝降，这条是全场公开的；填 null 就是普通自语。',
     '【言行一致】台词必须与"动作"一致：说绕后就给 attack_move/move 并指向目标，说要撤就给 retreat。绝不出现"嘴上说要绕后，动作却是原地不动"。',
@@ -41,7 +41,7 @@ export function buildSystemPrompt(spec, humanTeam) {
     '{"台词":"≤20字","对谁":null或"队友"或"敌方","动作":"' + ACTION_LIST + '",' +
       '"目标":{"类型":"unit或building","id":数字} 或 {"类型":"position","x":数字,"y":数字} 或 null,' +
       '"武器":"机枪或火箭筒","说明":"≤15字的战术意图"}',
-    '说明：动作 attack=打指定目标；attack_move=向目标区域推进并在途中交战；move=纯移动；retreat=撤回己方指挥所；hold=原地防守；guard=守卫己方指挥所周边。',
+    '说明：动作 attack=打指定目标；attack_move=向目标区域推进并在途中交战；move=纯移动；retreat=撤回己方指挥所；hold=原地防守；guard=守卫己方指挥所周边；board=走向并乘驾"可用载具"里指定 id 的空载具；dismount=离开当前载具恢复步兵。',
     '若无需切换武器，"武器"可省略。',
   ];
   return lines.join('\n');

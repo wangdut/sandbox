@@ -8,7 +8,7 @@
 //   · 阵营内协作与跨阵营喊话的消息分发
 
 import { FPS, TEAM_PLAYER, TEAM_NAMES, MAP_WIDTH, MAP_HEIGHT } from '../constants.js';
-import { MEMBERS, WEAPONS } from '../sandbox/memberDefs.js';
+import { MEMBERS, WEAPONS, dismountVehicle } from '../sandbox/memberDefs.js';
 import { findHQ } from '../sandbox/scenario.js';
 import { session } from '../core/session.js';
 import { buildSystemPrompt, buildSnapshot } from './prompts.js';
@@ -521,7 +521,27 @@ export class AgentManager {
         targetEntity = null;
       }
     }
-    if ((action === 'attack' || action === 'attack_move') && !targetEntity && !(target && target.类型 === 'position')) {
+    // 乘驾目标：己方空载具。上面的"敌方过滤"会把己方实体置空，
+    // 必须在此单独解析，否则 board / move 指向载具 id 永远被判无效目标
+    let mountTarget = null;
+    if (target && target.id != null) {
+      const cand = findEntityById(gameState, target.id);
+      if (cand && !cand.dead && cand.isMount && cand.team === member.team) mountTarget = cand;
+    }
+
+    // 下车：无需目标，直接恢复步兵形态
+    if (action === 'dismount') {
+      if (member.mountType) {
+        dismountVehicle(member);
+        agent.currentOrderTargetId = 0;
+        agent.currentIntent = '下车步行作战';
+      } else {
+        this._noteBlocked(agent, '当前未乘驾载具', frameCount);
+      }
+      return true;
+    }
+
+    if ((action === 'attack' || action === 'attack_move') && !targetEntity && !mountTarget && !(target && target.类型 === 'position')) {
       const board = this._boardFor(gameState, agent.spec.team);
       const fb = fallbackDecide(gameState, member, { spec: agent.spec, board: board });
       this._noteBlocked(agent, '目标无效', frameCount);
@@ -533,18 +553,22 @@ export class AgentManager {
     const mx = Math.floor(member.x), my = Math.floor(member.y);
 
     // 目标是己方停放载具 → 走过去乘驾（获得载具装甲与火力）
-    if (targetEntity && targetEntity.isMount && targetEntity.team === member.team &&
-        (action === 'move' || action === 'attack_move' || action === 'attack')) {
-      const c = tileCenter(targetEntity);
-      member.boardTarget = targetEntity;
+    if (mountTarget && (action === 'board' || action === 'move' || action === 'attack_move' || action === 'attack')) {
+      if (member.mountType) { this._noteBlocked(agent, '已在载具中，先 dismount', frameCount); return false; }
+      const c = tileCenter(mountTarget);
+      member.boardTarget = mountTarget;
       member.attackTarget = null;
       member.attackMoveTarget = null;
       member.guardPos = null;
       member.path = map.findPath(mx, my, c.x, c.y, 3000, member, true);
       member.pathIndex = 0;
       agent.currentOrderTargetId = 0;
-      agent.currentIntent = '前往乘驾' + targetEntity.name;
+      agent.currentIntent = '前往乘驾' + mountTarget.name;
       return true;
+    }
+    if (action === 'board') {
+      this._noteBlocked(agent, '乘驾目标无效（非己方空载具）', frameCount);
+      return false;
     }
 
     switch (action) {
@@ -720,7 +744,7 @@ export class AgentManager {
       const member = live.get(agent.spec.key);
       if (!member) return;
       const board = self._boardFor(gameState, agent.spec.team);
-      const decision = quickCommandDecision(kind, member, { spec: agent.spec, board: board });
+      const decision = quickCommandDecision(kind, member, { spec: agent.spec, board: board, gameState: gameState });
       if (!decision) return;
       agent.lastDecision = decision;
       agent.lastSay = decision.say;

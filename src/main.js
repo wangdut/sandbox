@@ -149,6 +149,8 @@ function startGame(side) {
   // 成员系统：阵亡重生、缓慢回血、武器切换
   memberSystem = new MemberSystem();
   memberSystem.init(gameState);
+  // 载具被击毁 → 成员弹射逃生（钩子写法同 _playExplosionSound，避免 GameState 反向依赖）
+  gameState._memberEject = function (m) { return memberSystem.tryEject(gameState, m); };
   memberPanel = new MemberPanel();
   memberPanel.init();
   budgetPanel = new BudgetPanel();
@@ -475,7 +477,7 @@ function sendGodCommand(text, source) {
  */
 function sendQuickCommand(kind) {
   if (!commandBus || !agentManager) return;
-  const LABELS = { allAttack: '总攻', retreat: '撤退', defend: '回防', regroup: '集合' };
+  const LABELS = { allAttack: '总攻', retreat: '撤退', defend: '回防', regroup: '集合', mount: '上车', dismount: '下车' };
   const label = LABELS[kind] || kind;
   commandBus.sendCommand({ team: session.humanTeam, type: 'quick', kind: kind, text: '【' + label + '】', queue: false });
   chatPanel.addSystem('【你 → 己方】' + label + '（快捷命令，不消耗 token）');
@@ -802,6 +804,7 @@ function loadGame() {
   // 读档后同样保持上帝视角，并重建成员槽位（实体 id 已变）
   gameState.fogOfWar.enabled = false;
   memberSystem.init(gameState);
+  gameState._memberEject = function (m) { return memberSystem.tryEject(gameState, m); };
   memberPanel._sig = '';
   wireSuperWeaponCallbacks(gameState.superWeaponManager);
   gameState.superWeaponManager._statusCount = 0;

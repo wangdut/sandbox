@@ -363,6 +363,8 @@ export class GameState {
       target.hp = 0;
       this.addExplosion(target.getCenterX(), target.getCenterY(), target.isBuilding ? 36 : 30, 'big');
       if (this._playExplosionSound) this._playExplosionSound();
+      // 成员乘驾的载具被击毁 → 弹射逃生，不进死亡流程
+      if (target.isMember && target.mountType && this._memberEject && this._memberEject(target)) return;
       if (target.type === 'base') {
         this.gameOver = true;
         this.winner = target.team === TEAM_PLAYER ? TEAM_ENEMY : TEAM_PLAYER;

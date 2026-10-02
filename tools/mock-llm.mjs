@@ -9,9 +9,11 @@
 //   Key 随意填一个非空值（如 test）
 //
 // 决策规则（确定性，便于断言）：
+//   · 乘驾中且载具血量<25% → dismount（弃车保命）
 //   · 血量低于 40%          → retreat（撤回指挥所）
 //   · 射程内有目标（≤6格）  → attack 最近目标
 //   · 有目标在 12 格内      → attack_move 该目标
+//   · 步兵且 10 格内有空车、12 格内无敌人 → board 该载具
 //   · 否则                  → attack_move 敌方指挥所（火箭筒）
 //   台词会带上触发的命令/战况；夜枭会尝试对敌方喊话，雷霆会尝试呼叫队友配合。
 
@@ -44,6 +46,35 @@ function decide(snap) {
 
   const kindOf = (t) => (String(t['类型'] || '').indexOf('建筑') >= 0 || String(t['类型'] || '').indexOf('指挥所') >= 0) ? 'building' : 'unit';
   const nearest = targets.slice().sort((a, b) => a['距离'] - b['距离'])[0] || null;
+  const mounts = snap['可用载具'] || [];
+  const mounted = !!self['载具'];
+  const hpRatio = hpMax > 0 ? hpNow / hpMax : 1;
+
+  // 载具快被打爆 → 弃车保命（触发弹射/下车链路）
+  if (mounted && hpRatio < 0.25) {
+    return {
+      台词: '载具要炸了，弃车！',
+      对谁: null,
+      动作: 'dismount',
+      目标: null,
+      武器: '机枪',
+      说明: '弃车保命',
+    };
+  }
+
+  // 步兵、近处有空车、附近没敌人、血量健康 → 上车
+  if (!mounted && hpRatio >= 0.6 && !(nearest && nearest['距离'] <= 12)) {
+    const free = mounts.slice().sort((a, b) => a['距离'] - b['距离'])[0] || null;
+    if (free && free['距离'] <= 10) {
+      return {
+        台词: '我上' + (free['名称'] || '载具') + '！',
+        对谁: null,
+        动作: 'board',
+        目标: { 类型: 'unit', id: free.id },
+        说明: '乘驾载具再战',
+      };
+    }
+  }
 
   // 血量过低 → 撤退
   if (hpMax > 0 && hpNow / hpMax < 0.4) {

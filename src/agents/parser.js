@@ -5,7 +5,7 @@
 
 import { WEAPONS } from '../sandbox/memberDefs.js';
 
-export const ACTIONS = ['attack_move', 'attack', 'move', 'retreat', 'hold', 'guard'];
+export const ACTIONS = ['attack_move', 'attack', 'move', 'retreat', 'hold', 'guard', 'board', 'dismount'];
 const MOVE_ACTIONS = ['attack_move', 'move', 'retreat'];
 
 const WEAPON_ALIAS = {
@@ -107,6 +107,10 @@ export function parseDecision(text) {
   // move 允许位置或实体 id（模型常用 move 走向载具/单位去乘驾或接近）
   if (action === 'move' && !target) {
     return { ok: false, error: 'move 缺少目标', raw: text };
+  }
+  // board 必须指向载具 id（执行侧再校验是否为本方空车）；dismount 无需目标
+  if (action === 'board' && !(target && target.类型 === 'unit' && target.id != null)) {
+    return { ok: false, error: 'board 缺少载具目标 id', raw: text };
   }
 
   return {

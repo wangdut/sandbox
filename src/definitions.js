@@ -131,6 +131,8 @@ export const UNIT_DEFS = {
   tank:       { name:'主战坦克', cost:0, hp:650, speed:1.4, damage:42, range:6, fireRate:40, requires:[], buildTime:0, type:'vehicle', category:'units', icon:'#34495e', desc:'可乘驾载具：重甲重炮', faction: null, mount: true, armorType:'heavy', damageType:'cannon' },
   apc:        { name:'装甲车',   cost:0, hp:420, speed:2.2, damage:16, range:5, fireRate:16, requires:[], buildTime:0, type:'vehicle', category:'units', icon:'#7f8c8d', desc:'可乘驾载具：机枪高机动', faction: null, mount: true, armorType:'light', damageType:'bullet' },
   gunship:    { name:'炮艇机',   cost:0, hp:300, speed:2.4, damage:55, range:7, fireRate:55, requires:[], buildTime:0, type:'helicopter', category:'units', icon:'#9b59b6', desc:'可乘驾载具：对地轰炸', faction: null, mount: true, armorType:'light', damageType:'missile', splashRadius: 1 },
+  // 轰炸机复用直升机（helicopter）的空军移动与直线寻路；ammo 保持 null 以避开弹药装填逻辑
+  bomber:     { name:'轰炸机',   cost:0, hp:250, speed:1.6, damage:90, range:6, fireRate:70, requires:[], buildTime:0, type:'helicopter', category:'units', icon:'#e67e22', desc:'可乘驾载具：对建筑范围轰炸', faction: null, mount: true, armorType:'light', damageType:'bomb', splashRadius: 1.5 },
 };
 
 // ==================== 装甲类型定义 ====================
@@ -181,7 +183,7 @@ export const ARMOR_BY_TYPE = {
   infantry: 'none', conscript: 'none', rocket: 'none', flakTrooper: 'none', member: 'none',
   engineer: 'none', spy: 'none', tanya: 'none', attackDog: 'none', crazyIvan: 'none',
   // --- 载具 ---
-  tank: 'heavy', apc: 'light', gunship: 'light',
+  tank: 'heavy', apc: 'light', gunship: 'light', bomber: 'light',
   // --- 车辆 ---
   harvester: 'light', warMiner: 'medium', grizzly: 'medium', rhino: 'heavy',
   apocalypse: 'heavy', mirage: 'light', prism: 'light', v3: 'light',
@@ -198,7 +200,7 @@ export const DAMAGE_BY_TYPE = {
   infantry: 'bullet', conscript: 'bullet', attackDog: 'bullet', tanya: 'bullet', member: 'bullet',
   rocket: 'rocket', flakTrooper: 'rocket',
   // --- 载具 ---
-  tank: 'cannon', apc: 'bullet', gunship: 'missile',
+  tank: 'cannon', apc: 'bullet', gunship: 'missile', bomber: 'bomb',
   // --- 车辆 ---
   grizzly: 'cannon', rhino: 'cannon', apocalypse: 'cannon', mirage: 'cannon', arty: 'cannon',
   warMiner: 'bullet', ifv: 'bullet', flakTrack: 'bullet',
