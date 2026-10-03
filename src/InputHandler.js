@@ -111,7 +111,7 @@ export class InputHandler {
           if (amTarget && amTarget.team !== self._gameState.humanTeam && !amTarget.dead) {
             callbacks.selectedUnits.forEach(function(u) {
               u.attackTarget = amTarget; u.path = []; u.pathIndex = 0;
-              u.attackMoveTarget = null; u.guardPos = null;
+              u.attackMoveTarget = null; u.guardPos = null; u.fleeTo = null;
             });
             self._gameState.addFloatingText(amTarget.getCenterX(), amTarget.getCenterY() - 15, '\u653b\u51fb!', '#e74c3c');
           } else {
@@ -119,7 +119,7 @@ export class InputHandler {
             callbacks.selectedUnits.forEach(function(u) {
               u.attackTarget = null;
               u.attackMoveTarget = { x: amx, y: amy };
-              u.guardPos = null;
+              u.guardPos = null; u.fleeTo = null;
               u.path = self._gameState.map.findPath(Math.floor(u.x), Math.floor(u.y), amx, amy, 3000, u, true);
               u.pathIndex = 0;
             });
@@ -212,7 +212,7 @@ export class InputHandler {
         if (rc && rc.team !== self._gameState.humanTeam && !rc.dead) {
           callbacks.selectedUnits.forEach(function(u) {
             u.attackTarget = rc; u.path = []; u.pathIndex = 0;
-            u.attackMoveTarget = null; u.guardPos = null;
+            u.attackMoveTarget = null; u.guardPos = null; u.fleeTo = null;
           });
           self._gameState.addFloatingText(rc.getCenterX(), rc.getCenterY() - 15, '\u76ee\u6807!', '#e74c3c');
           callbacks.onNotify('\u653b\u51fb ' + rc.name, 'info');
@@ -223,7 +223,7 @@ export class InputHandler {
             u.boardTarget = rc;
             u.attackTarget = null;
             u.attackMoveTarget = null;
-            u.guardPos = null;
+            u.guardPos = null; u.fleeTo = null;
             u.path = self._gameState.map.findPath(Math.floor(u.x), Math.floor(u.y), Math.floor(rc.x), Math.floor(rc.y), 3000, u, true);
             u.pathIndex = 0;
           });
@@ -232,6 +232,7 @@ export class InputHandler {
           callbacks.selectedUnits.forEach(function(u) {
             if (u.canRepair) { u.attackTarget = rc; u.path = []; u.pathIndex = 0; }
             else u.guardPos = { x: Math.floor(rc.x), y: Math.floor(rc.y) };
+            u.fleeTo = null;
           });
           callbacks.onNotify('\u62a4\u536b ' + rc.name, 'info');
         } else {
@@ -244,7 +245,7 @@ export class InputHandler {
             var ty2 = Math.max(0, Math.min(MAP_HEIGHT - 1, cy + oy));
             u.attackTarget = null;
             u.attackMoveTarget = null;
-            u.guardPos = null;
+            u.guardPos = null; u.fleeTo = null;
             u.burstRemaining = 0;
             u.path = self._gameState.map.findPath(Math.floor(u.x), Math.floor(u.y), tx2, ty2, 3000, u, true);
             u.pathIndex = 0;

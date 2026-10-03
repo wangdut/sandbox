@@ -222,6 +222,7 @@ export class AgentManager {
     member.burstRemaining = 0;
     member.burstTarget = null;
     member.guardPos = null;
+    member.fleeTo = { x: dest.x, y: dest.y };   // 纯脱离，不恋战（与 retreat 共用同一条撤离通路）
     member.path = gameState.map.findPath(mx, my, dest.x, dest.y, 3000, member, true);
     member.pathIndex = 0;
     agent.currentOrderTargetId = 0;
@@ -527,6 +528,7 @@ export class AgentManager {
     }
     agent.lastApplyFrame = frameCount;
     agent.actionBlocked = false;
+    member.fleeTo = null;   // 任何新决策都覆盖先前的"脱离"状态
 
     const action = decision.action;
     const target = decision.target;
@@ -632,9 +634,12 @@ export class AgentManager {
         if (!dest) { this._noteBlocked(agent, '找不到己方指挥所', frameCount); return false; }
         member.attackTarget = null;
         member.attackMoveTarget = null;
+        member.guardPos = null;
+        member.burstRemaining = 0;
+        member.burstTarget = null;
+        member.fleeTo = { x: dest.x, y: dest.y };   // 纯脱离：赶回指挥所，不恋战
         member.path = map.findPath(mx, my, dest.x, dest.y, 3000, member, true);
         member.pathIndex = 0;
-        member.guardPos = { x: dest.x, y: dest.y };
         agent.currentOrderTargetId = 0;
         break;
       }

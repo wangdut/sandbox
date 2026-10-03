@@ -189,6 +189,7 @@ export class MemberSystem {
     member.attackMoveTarget = null;
     member.boardTarget = null;
     member.guardPos = null;
+    member.fleeTo = null;
     gameState.addFloatingText(member.getCenterX(), member.getCenterY() - 14, member.memberName + ' 弃车逃生', '#f1c40f');
     gameState.addSpeech(member, '我中弹了，弃车！', '#f1c40f');
     return true;

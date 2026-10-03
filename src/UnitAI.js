@@ -36,6 +36,24 @@ export function updateUnitAI(gameState, unit, frameCount) {
       return;
     }
   }
+  // 撤退/脱离：大脑决定脱离战斗后只赶路，不恋战、不还手、不追出射程。
+  // 否则"嘴上说撤回、脚下原地开火"——守卫判定与自动索敌都会把撤退重新拖回战斗。
+  if (unit.fleeTo) {
+    var fdx = unit.x - unit.fleeTo.x, fdy = unit.y - unit.fleeTo.y;
+    if (fdx * fdx + fdy * fdy < 4) {          // 已到指挥所/安全点附近
+      unit.fleeTo = null;
+      unit.path = []; unit.pathIndex = 0;
+      return;
+    }
+    if (unit.path.length === 0 || unit.pathIndex >= unit.path.length || unit.pathRecalcTimer <= 0) {
+      unit.path = gameState.map.findPath(Math.floor(unit.x), Math.floor(unit.y), unit.fleeTo.x, unit.fleeTo.y, 3000, unit);
+      unit.pathIndex = 0;
+      unit.pathRecalcTimer = 30;
+      if (unit.path.length === 0) { unit.fleeTo = null; return; }  // 走不动：别卡死在这里
+    }
+    moveUnit(gameState, unit);
+    return;
+  }
   if (unit.canRepair && unit.attackTarget && unit.attackTarget.isBuilding) {
     var tgt = unit.attackTarget;
     if (tgt.dead) { unit.attackTarget = null; unit.path = []; unit.pathIndex = 0; return; }
