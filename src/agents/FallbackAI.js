@@ -7,8 +7,12 @@
 import { TEAM_NAMES, MAP_WIDTH, MAP_HEIGHT } from '../constants.js';
 import { isAIAutoTargetable } from './targeting.js';
 import { buildSquadBoard, onSandbag, onSummit } from './squadBoard.js';
+import { canSee } from './vision.js';
+import { isRecovering } from '../sandbox/memberSystem.js';
 
 const RETREAT_LINES = ['我先撤回去补血！', '撑不住了，回防！', '血量太低，撤！'];
+const RECOVER_LINES = ['我在基地回血，好了再上。', '先回满血再出去打。', '躲回基地缓一缓。'];
+const DEFEND_LINES = ['指挥所被打了，回防！', '家要没了，撤回来守！', '回去保指挥所！'];
 const FIGHT_LINES = ['发现敌人，开火！', '交给我，打！', '有敌人，吃我一发！'];
 const FOCUS_LINES = ['队友在集火，我补炮！', '一起打这个，先把它秒了！', '锁定同一个目标，开火！'];
 const SUPPORT_LINES = ['顶住，我来支援！', '往我这边靠，交叉火力别扎堆！', '我绕过去帮你，别一个人冲！'];
@@ -123,6 +127,34 @@ export function fallbackDecide(gameState, member, ctx) {
     }
   }
 
+  // 0.5) 回血重整：脱战 + 在基地附近 + 未回满七成 → 驻守回血，别带伤再冲出去
+  if (isRecovering(gameState, member)) {
+    return {
+      say: pick(RECOVER_LINES, seed),
+      to: null,
+      action: 'hold',
+      target: null,
+      weapon: null,
+      intent: '回血重整',
+    };
+  }
+
+  // 0.6) 己方指挥所正在挨打且自己不在近处交火 → 回防（成员不能眼睁睁看家被拆）
+  if (ownHq && ownHq.lastDamagedTimer > 0) {
+    const hc = centerOf(ownHq);
+    const far = (member.x - hc.x) * (member.x - hc.x) + (member.y - hc.y) * (member.y - hc.y) > 8 * 8;
+    if (far && gameState.getEnemiesInRange(member, member.range).length === 0) {
+      return {
+        say: pick(DEFEND_LINES, seed),
+        to: '队友',
+        action: 'guard',
+        target: { 类型: 'position', x: hc.x, y: hc.y },
+        weapon: 'mg',
+        intent: '回防指挥所',
+      };
+    }
+  }
+
   // 1) 残血撤退回指挥所附近
   if (hpRatio < 0.35 && ownHq) {
     const c = centerOf(ownHq);
@@ -190,10 +222,11 @@ export function fallbackDecide(gameState, member, ctx) {
   let nearest = null, nd = Infinity;
   gameState.entities.forEach(function (e) {
     if (!isAIAutoTargetable(e, member.team)) return;
+    if (!canSee(gameState, member, e)) return;
     const d = (e.x - member.x) * (e.x - member.x) + (e.y - member.y) * (e.y - member.y);
     if (d < nd) { nd = d; nearest = e; }
   });
-  if (nearest && nd < 14 * 14) {
+  if (nearest) {
     return {
       say: pick(PUSH_LINES, seed),
       to: null,

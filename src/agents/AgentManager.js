@@ -16,11 +16,11 @@ import { parseDecision } from './parser.js';
 import { fallbackDecide, quickCommandDecision } from './FallbackAI.js';
 import { isAIAutoTargetable } from './targeting.js';
 import { buildSquadBoard } from './squadBoard.js';
+import { canSee, INTEL_TTL_FRAMES } from './vision.js';
 import { chatOnce } from './LLMClient.js';
 import { isAgentEnabled, resolveMemberAuth, isLLMReady } from './config.js';
 
 const MAX_INFLIGHT = 6;          // 同时在途的 LLM 请求上限（六名成员六把独立 Key，可全并行，不必排队）
-const CONTACT_RANGE = 10;        // 判定"发现敌人"的距离（格）
 const EVENT_CAP = 8;
 const MSG_CAP = 4;
 const MAX_CONSECUTIVE_ERRORS = 3;
@@ -292,11 +292,18 @@ export class AgentManager {
         agent.currentOrderTargetId = 0;
       }
     }
+    // 上帝标记的目标已死/失效：清掉，别让快照一直挂着一个已消灭的目标
+    if (agent.godTargetId) {
+      const gt = findEntityById(gameState, agent.godTargetId);
+      if (!gt || gt.dead) agent.godTargetId = 0;
+    }
 
-    // 发现敌人（中立高楼是掩体不是敌人，走统一判定剔除）
+    // 发现敌人（按视野 + 视线，中立高楼是掩体不是敌人，走统一判定剔除）
+    // 每个看到的敌人同步写进班组情报板，供队友"报点共享"。
     let nearest = null, nd = Infinity;
     let cover = null, cd = Infinity;
     const units = gameState.entities;
+    const intel = gameState.squadIntel ? gameState.squadIntel[member.team] : null;
     for (let i = 0; i < units.length; i++) {
       const e = units[i];
       if (e.dead) continue;
@@ -307,14 +314,25 @@ export class AgentManager {
         continue;
       }
       if (e.team === member.team) continue;
-      if (d < nd) { nd = d; nearest = e; }
+      if (canSee(gameState, member, e)) {
+        if (intel) intel[e.id] = { x: e.x, y: e.y, atFrame: frameCount };
+        if (d < nd) { nd = d; nearest = e; }
+      }
+    }
+    // 节流清理过期/阵亡的报点，避免 long-run 里情报板无限膨胀
+    if (intel && frameCount % 60 === 0) {
+      for (const id in intel) {
+        const rec = intel[id];
+        const e = findEntityById(gameState, Number(id));
+        if (!e || e.dead || frameCount - rec.atFrame > INTEL_TTL_FRAMES) delete intel[id];
+      }
     }
     if (cover && cd <= 8 * 8 && agent.lastCoverId !== cover.id) {
       agent.lastCoverId = cover.id;
       agent.events.push('附近有' + cover.name + '，可贴到它背向来敌的一侧躲子弹（不要主动拆它）');
     }
     const nearDist = Math.sqrt(nd);
-    if (nearest && nearDist <= CONTACT_RANGE) {
+    if (nearest) {
       if (agent.lastContactId !== nearest.id) {
         agent.lastContactId = nearest.id;
         agent.lastContactFrame = frameCount;
@@ -323,6 +341,17 @@ export class AgentManager {
       }
     } else {
       agent.lastContactId = 0;
+    }
+
+    // 己方指挥所正在被攻击：自己没挨打也要回防（否则成员会眼睁睁看基地被拆）。
+    // 每 30 帧（0.5 秒）查一次，命中后按 300 帧（5 秒）节流提示。
+    if (frameCount - (agent.lastHqCheckFrame || -99999) > 30) {
+      agent.lastHqCheckFrame = frameCount;
+      const ownHq = findHQ(gameState, member.team);
+      if (ownHq && ownHq.lastDamagedTimer > 0 && frameCount - (agent.lastHqAlertFrame || -99999) > 300) {
+        agent.lastHqAlertFrame = frameCount;
+        agent.events.push('我方指挥所正在被攻击，回防！');
+      }
     }
 
     if (agent.events.length > EVENT_CAP) agent.events = agent.events.slice(-EVENT_CAP);
@@ -347,6 +376,7 @@ export class AgentManager {
     }
 
     if (frameCount - agent.lastHurtEventFrame <= 30) triggers.push('hurt');
+    if (frameCount - (agent.lastHqAlertFrame || -99999) <= 30) triggers.push('hurt');
     if (agent.lowHpFlag) triggers.push('lowhp');
     if (agent.memoryTargetDown) { triggers.push('targetdown'); agent.memoryTargetDown = false; }
     if (agent.lastContactId && frameCount - agent.lastContactFrame <= 30) triggers.push('contact');
@@ -384,6 +414,9 @@ export class AgentManager {
       spec: agent.spec,
       board: board,
       humanTeam: session.humanTeam,
+      frameCount: frameCount,
+      // 上帝右键标记的目标：快照会置顶为「标记」来源，成员应优先攻击
+      godTargetId: agent.godTargetId || 0,
       // 命令只取"本队"的：跨阵营绝不能看到上帝给对方下的指令
       lastCommand: this.commandBus ? this.commandBus.lastForTeam(agent.spec.team) : null,
       events: agent.events.slice(),
@@ -809,6 +842,35 @@ export class AgentManager {
   }
 
   // ==================== 对外统计（HUD / 面板）====================
+
+  /**
+   * 上帝右键标记敌人：己方全员立即锁定并攻击该目标（零 token）。
+   * 引擎层直接改 attackTarget 保证即时响应；godTargetId 喂给快照，
+   * 让成员下一轮 LLM 决策也把这个目标当「标记」优先处理，而不是以"不在视野"为由拒绝。
+   * @returns 受命成员数
+   */
+  markEnemy(gameState, targetEntity) {
+    if (!targetEntity || targetEntity.dead || targetEntity.aiIgnore) return 0;
+    let applied = 0;
+    this.agents.forEach(function (agent) {
+      if (agent.spec.team !== session.humanTeam) return;
+      for (let i = 0; i < gameState.entities.length; i++) {
+        const e = gameState.entities[i];
+        if (!e.isMember || e.dead || e.memberKey !== agent.spec.key) continue;
+        e.attackTarget = targetEntity;
+        e.attackMoveTarget = null;
+        e.guardPos = null;
+        e.fleeTo = null;
+        e.path = [];
+        e.pathIndex = 0;
+        applied++;
+      }
+      agent.godTargetId = targetEntity.id;
+      if (agent.events.length >= EVENT_CAP) agent.events = agent.events.slice(-(EVENT_CAP - 1));
+      agent.events.push('上帝标记了「' + targetEntity.name + '」，立即攻击');
+    });
+    return applied;
+  }
 
   stats() {
     const self = this;

@@ -13,7 +13,10 @@ import { findHQ, findRespawnSpot, mountPads, spawnParkedMount } from './scenario
 
 export const RESPAWN_SEC = 30;      // 阵亡后重生等待（秒）
 export const REGEN_INTERVAL = 120;  // 每 2 秒回 1 次血
-export const REGEN_AMOUNT = 3;      // 每次回复量（≈1.5 点/秒，让「撤退重整」有实际收益）
+export const REGEN_AMOUNT = 3;      // 脱战后普通回复量（≈1.5 点/秒）
+export const REGEN_AMOUNT_FAST = 10;// 己方指挥所附近的加速回复量（≈5 点/秒，让「撤回基地回血」真正划算）
+export const RECOVER_HP_RATIO = 0.7;// 回血到七成才视为「可以再战」，不再反复带伤出击
+export const RECOVER_RADIUS = 6;    // 距己方指挥所中心多近算「在基地回血」（格）
 export const EJECT_HP_RATIO = 0.3;  // 弹射后保留的步兵血量比例
 export const EJECT_INVULN = 120;    // 弹射后的无敌帧（2 秒，够从残骸里跑出来）
 export const EJECT_COOLDOWN = 300;  // 两次弹射的最小间隔（5 秒，防连续弃车刷保命血）
@@ -69,9 +72,17 @@ export class MemberSystem {
       const alive = e && !e.dead;
       if (alive) {
         slot.missingSince = -1;
-        // 缓慢回血：让「撤退重整」成为有效战术
-        if (e.hp < e.maxHp && frameCount % REGEN_INTERVAL === 0) {
-          e.hp = Math.min(e.maxHp, e.hp + REGEN_AMOUNT);
+        // 缓慢回血：脱战约 3 秒（lastDamagedTimer 归零）后才开始，让「撤退重整」成为有效战术。
+        // 站在己方指挥所附近回血更快——鼓励成员「撤回基地」而不是边打边硬扛。
+        if (e.hp < e.maxHp && e.lastDamagedTimer <= 0 && frameCount % REGEN_INTERVAL === 0) {
+          const hq = findHQ(gameState, e.team);
+          let nearHq = false;
+          if (hq) {
+            const hcx = hq.x + hq.size / 2, hcy = hq.y + hq.size / 2;
+            const hdx = e.x - hcx, hdy = e.y - hcy;
+            nearHq = hdx * hdx + hdy * hdy <= RECOVER_RADIUS * RECOVER_RADIUS;
+          }
+          e.hp = Math.min(e.maxHp, e.hp + (nearHq ? REGEN_AMOUNT_FAST : REGEN_AMOUNT));
         }
         if (e.ejectCooldown > 0) e.ejectCooldown--;
         if (e.ejectInvuln > 0) {
@@ -232,4 +243,19 @@ export class MemberSystem {
     unit.muzzleFlash = 4;
     return true;
   }
+}
+
+/**
+ * 该成员是否处于「回血重整」状态：脱战 + 在己方指挥所附近 + 血量未回满七成。
+ * 供兜底 AI 驻守、快照标注「回血中」用——避免残血成员撤回基地后下一拍又带伤冲出去。
+ */
+export function isRecovering(gameState, member) {
+  if (!member || member.dead || member.isMount) return false;
+  if (member.lastDamagedTimer > 0) return false;                 // 正在挨打就不是回血
+  if (member.hp >= member.maxHp * RECOVER_HP_RATIO) return false;
+  const hq = findHQ(gameState, member.team);
+  if (!hq) return false;
+  const cx = hq.x + hq.size / 2, cy = hq.y + hq.size / 2;
+  const dx = member.x - cx, dy = member.y - cy;
+  return dx * dx + dy * dy <= RECOVER_RADIUS * RECOVER_RADIUS;
 }

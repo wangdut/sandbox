@@ -7,10 +7,11 @@
 
 import { TEAM_NAMES, TEAM_PLAYER } from '../constants.js';
 import { WEAPONS } from '../sandbox/memberDefs.js';
-import { HG_RANGE_BONUS, HG_DAMAGE_MULT } from '../sandbox/memberSystem.js';
+import { HG_RANGE_BONUS, HG_DAMAGE_MULT, isRecovering } from '../sandbox/memberSystem.js';
 import { UNIT_DEFS } from '../definitions.js';
 import { isAIAutoTargetable } from './targeting.js';
 import { reliefTiles, onSandbag, buildSquadBoard, squadBrief } from './squadBoard.js';
+import { canSee } from './vision.js';
 
 const ACTION_LIST = 'attack_move|attack|move|retreat|hold|guard|board|dismount|cover|highground';
 
@@ -31,6 +32,8 @@ export function buildSystemPrompt(spec, humanTeam) {
     '【高地与掩体】地图上有山包和沙袋阵地。山顶是步兵专属战术位：站上去射程与伤害都有加成，适合伏击与观察报点；沙袋阵地能实实在在降低你受到的伤害，挨打时躲进去比硬站开阔地活得久。想占位直接把"动作"设为 highground（上最近空闲山顶）或 cover（进最近空闲沙袋阵地），系统会自己选格，不必你报坐标。车辆和飞行器都上不了山包与沙袋，乘载具时要主动让开这些地形给队友。',
     '【协同】你们三个人是一个班，快照里的「队友」写着每名队友的位置、血量、在打谁，「协同」写着谁在集火、谁在求援、哪些战术位还空着以及你的分工。必须照着配合：①「集火」出现时优先补它的火力，别各打各的；②「求援」出现时向那名队友靠拢形成交叉火力，而不是自己冲锋；③「空闲山顶」「空闲沙袋」是队友没占的位置，抢已被占的格子等于添乱；④按「分工」栏各就各位——侦察手上山顶观察报点，突击手与重装兵进沙袋正面压制，爆破手在掩体后远程点装甲与建筑；⑤三人不要扎堆在同一片格子上，一发炮弹就能把全班送走。',
     '【生存】血量低于一半就应脱离战斗、撤回己方指挥所回血；别和碉堡/炮塔硬刚，它们火力强、拆得慢——用火箭筒远程点掉或干脆绕开。',
+    '【视野】你只能看到快照"可选目标"里来源为"视野"的敌人；来源为"报点"的是队友刚发现的远处目标，可据此决定支援、推进或回撤；来源为"标记"的是上帝为你确认的目标，必须优先攻击，不得以"不在视野"为由拒绝。',
+    '【回血】脱离战斗约 3 秒后开始自动回血，回到己方指挥所附近回血更快；血量低就撤回指挥所，回满（或到七成）再重新投入战斗。',
     '【目标选择】优先摧毁敌方「指挥所」或击杀敌方成员；攻击"防御工事"收益低，除非它正好挡在必经之路。',
     '【楼房】地图上的中立「高楼大厦」是障碍物兼掩体：它不可通行，会截断双方的子弹与炮弹。看到"掩体"列表里的楼，要贴着它、绕到它背向来敌的一侧来躲火力；绝不要主动攻击它——拆楼既浪费火力又暴露位置，只有指挥官明确下令时才动手。',
     '【载具】己方指挥所旁停放着载具（主战坦克/装甲车/炮艇机/轰炸机），见"可用载具"列表（都是空闲的）。想上车：把"动作"设为 board、"目标"指向该载具 id，你会走过去乘驾，获得更强装甲与火力（对建筑伤害大增）；想下车：动作 dismount（无需目标）。乘驾中无法切换步兵武器；载具快被打爆时（血量低于四分之一）应 dismount 弃车保命。',
@@ -117,25 +120,54 @@ export function buildSnapshot(gameState, member, ctx) {
   const enemyHq = ctx.board.enemyHq;
   const weapon = WEAPONS[member.weaponMode] || WEAPONS.mg;
 
-  // 可选目标：射程/视野内最近的敌方单位与建筑（含防御工事），最多 6 个。
-  // 中立高楼走 isAIAutoTargetable 剔除——它是掩体不是猎物，列进来会让模型顺手去拆。
-  const enemies = gameState.entities
-    .filter(function (e) { return isAIAutoTargetable(e, member.team); })
-    .map(function (e) { return { e: e, d: distTiles(member, e) }; })
-    .filter(function (o) { return o.d <= 22; })
-    .sort(function (a, b) { return a.d - b.d; })
-    .slice(0, 6)
-    .map(function (o) {
-      return {
-        id: o.e.id,
-        名称: o.e.name,
-        类型: kindOf(o.e),
-        种类: o.e.isBuilding ? 'building' : 'unit',
-        距离: o.d,
-        血量: Math.ceil(o.e.hp) + '/' + o.e.maxHp,
-        位置: tileOf(o.e),
-      };
+  // 可选目标：只列「看得到」或「被报点/上帝标记」的敌人，最多 ~8 个。
+  // 视野 = 距离 ≤ 视野半径 + 视线可达（高楼会挡住视线）；中立高楼走 isAIAutoTargetable 剔除。
+  function findById(id) {
+    for (let i = 0; i < gameState.entities.length; i++) if (gameState.entities[i].id === id) return gameState.entities[i];
+    return null;
+  }
+  function targetEntry(e, source) {
+    return {
+      id: e.id,
+      名称: e.name,
+      类型: kindOf(e),
+      种类: e.isBuilding ? 'building' : 'unit',
+      距离: distTiles(member, e),
+      血量: Math.ceil(e.hp) + '/' + e.maxHp,
+      位置: tileOf(e),
+      来源: source,
+    };
+  }
+  const enemies = [];
+  const seenIds = {};
+  // 1) 上帝标记：无论是否可见都置顶——上帝已替你确认该目标存在，必须优先打
+  const marked = ctx.godTargetId != null ? findById(ctx.godTargetId) : null;
+  if (marked && !marked.dead && !marked.aiIgnore && marked.team !== member.team) {
+    enemies.push(targetEntry(marked, '标记'));
+    seenIds[marked.id] = true;
+  }
+  // 2) 自己视野内的敌人（近者优先）
+  gameState.entities
+    .filter(function (e) { return isAIAutoTargetable(e, member.team) && canSee(gameState, member, e); })
+    .sort(function (a, b) { return distTiles(member, a) - distTiles(member, b); })
+    .forEach(function (e) {
+      if (enemies.length >= 6) return;
+      if (seenIds[e.id]) return;
+      enemies.push(targetEntry(e, '视野'));
+      seenIds[e.id] = true;
     });
+  // 3) 队友报点：squadIntel 里队友最近看见、自己当前看不到的远处敌人
+  const intel = gameState.squadIntel ? gameState.squadIntel[member.team] : null;
+  if (intel) {
+    for (const id in intel) {
+      if (enemies.length >= 8) break;
+      const e = findById(Number(id));
+      if (!e || e.dead || seenIds[e.id]) continue;
+      if (!isAIAutoTargetable(e, member.team)) continue;
+      enemies.push(targetEntry(e, '报点'));
+      seenIds[e.id] = true;
+    }
+  }
 
   const squad = buildSquadBoard(gameState, member);
   const mates = squad.mates.map(function (e) {
@@ -173,6 +205,8 @@ export function buildSnapshot(gameState, member, ctx) {
   const snap = {
     你是: TEAM_NAMES[member.team] + '·' + member.memberName,
     自身: {
+      状态: isRecovering(gameState, member) ? '回血中'
+        : (member.attackTarget ? '交战中' : (member.path && member.path.length ? '移动中' : '待命')),
       血量: Math.ceil(member.hp) + '/' + member.maxHp,
       位置: tileOf(member),
       武器: member.mountType

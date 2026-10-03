@@ -208,6 +208,10 @@ export class InputHandler {
         return;
       }
       var rc = self._gameState.getEntityAt(mouse.worldX, mouse.worldY);
+      // 沙盘：上帝右键标记敌人 → 全队攻击（无论是否选中，上帝指挥的是整队）
+      if (rc && rc.team !== self._gameState.humanTeam && !rc.dead && callbacks.onMarkEnemy) {
+        callbacks.onMarkEnemy(rc);
+      }
       if (callbacks.selectedUnits.length > 0) {
         if (rc && rc.team !== self._gameState.humanTeam && !rc.dead) {
           callbacks.selectedUnits.forEach(function(u) {
@@ -215,7 +219,7 @@ export class InputHandler {
             u.attackMoveTarget = null; u.guardPos = null; u.fleeTo = null;
           });
           self._gameState.addFloatingText(rc.getCenterX(), rc.getCenterY() - 15, '\u76ee\u6807!', '#e74c3c');
-          callbacks.onNotify('\u653b\u51fb ' + rc.name, 'info');
+          if (!callbacks.onMarkEnemy) callbacks.onNotify('\u653b\u51fb ' + rc.name, 'info');
         } else if (rc && rc.isMount && rc.team === self._gameState.humanTeam && !rc.dead) {
           // 右键己方停放载具 → 走过去乘驾
           callbacks.selectedUnits.forEach(function(u) {

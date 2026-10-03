@@ -135,7 +135,13 @@ function startGame(side) {
     onSaveGame: saveGame,
     onLoadGame: loadGame,
     superWeaponTargeting: null,
-    onSuperWeaponFire: fireSuperWeapon
+    onSuperWeaponFire: fireSuperWeapon,
+    onMarkEnemy: function(target) {
+      if (!agentManager) return;
+      const n = agentManager.markEnemy(gameState, target);
+      if (n > 0) notify('\u5df2\u6807\u8bb0 ' + target.name + '\uff0c\u5168\u961f\u653b\u51fb', 'info');
+      else notify('\u65e0\u6cd5\u6807\u8bb0\u8be5\u76ee\u6807', 'warn');
+    }
   });
   // 红方（电脑阵营）驱动：M1 为脚本兜底，M2 由 LLM 代理接管决策
   sandboxAI = new SandboxAI();

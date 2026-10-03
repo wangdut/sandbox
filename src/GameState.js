@@ -55,6 +55,10 @@ export class GameState {
     // 威胁网格（每队一张）：记录"进入敌方防御射程"的代价，供成员寻路绕开碉堡/炮塔。
     // 没有它，A* 会挑最短路直接穿过防御火力，表现为"说要绕后却硬刚碉堡"
     this.danger = [null, null];
+    // 班组共享情报（报点）：每队一张，enemyId -> {x,y,atFrame}。
+    // 任何队友看到的敌人都会记进来，快照据此把"队友刚发现的远处敌人"喂给其他成员，
+    // 让成员在看不到的地方也能据报点决定支援/推进/回撤。纯运行时状态，不入存档。
+    this.squadIntel = { 0: {}, 1: {} };
     this.spatialDirty = true;
     this._playerBuildings = null;
     this._enemyBuildings = null;

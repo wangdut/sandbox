@@ -16,9 +16,10 @@ import { DEFENSE_DEFS, UNIT_DEFS } from '../src/definitions.js';
 import { GameMap } from '../src/GameMap.js';
 import { GameState, SANDBAG_DAMAGE_MULT } from '../src/GameState.js';
 import { updateProjectiles } from '../src/Combat.js';
-import { MemberSystem, HG_RANGE_BONUS, HG_DAMAGE_MULT } from '../src/sandbox/memberSystem.js';
+import { MemberSystem, HG_RANGE_BONUS, HG_DAMAGE_MULT, isRecovering, RECOVER_HP_RATIO } from '../src/sandbox/memberSystem.js';
 import { buildSandboxScenario, findHQ } from '../src/sandbox/scenario.js';
-import { FPS, TEAM_PLAYER, TEAM_ENEMY, TEAM_NEUTRAL, GRASS, MAP_WIDTH, MAP_HEIGHT, TILE_SIZE, HILL, HILL_TOP, SANDBAG } from '../src/constants.js';
+import { canSee, sightRangeOf, hasVisionLOS } from '../src/agents/vision.js';
+import { FPS, TEAM_PLAYER, TEAM_ENEMY, TEAM_NEUTRAL, GRASS, WATER, ROCK, MAP_WIDTH, MAP_HEIGHT, TILE_SIZE, HILL, HILL_TOP, SANDBAG } from '../src/constants.js';
 
 let passed = 0;
 const failures = [];
@@ -549,6 +550,89 @@ ok('反射: 自保反射触发', withdrew);
 ok('反射: 反射同样进入脱离状态', !!b0.fleeTo, JSON.stringify(b0.fleeTo));
 eq('反射: 清空攻击/守卫目标', b0.attackTarget === null && b0.guardPos === null, true);
 b0.fleeTo = null;
+
+// ==================== 16. 视野 / 报点 / 标记 / 回血 ====================
+// 视野半径：按角色/载具/空军分级
+eq('视野: 侦察手看得更远', sightRangeOf({ memberKey: 'blue_3' }), 12);
+eq('视野: 突击手默认视野', sightRangeOf({ memberKey: 'blue_1' }), 10);
+eq('视野: 空军视野最远', sightRangeOf({ isAirUnit: true }), 14);
+eq('视野: 乘驾载具视野提升', sightRangeOf({ mountType: 'tank' }), 12);
+
+// 视线：只挡岩石与建筑，不挡水面（能看穿河）
+let vmap16 = buildOpenMap();
+ok('视线: 开阔草地可看', hasVisionLOS(vmap16, 2, 2, 10, 2));
+vmap16.terrain[2][6] = ROCK;
+ok('视线: 岩石挡视线', hasVisionLOS(vmap16, 2, 2, 10, 2) === false);
+vmap16.terrain[2][6] = WATER;
+ok('视线: 水面不挡视线', hasVisionLOS(vmap16, 2, 2, 10, 2));
+vmap16.terrain[2][6] = GRASS;
+vmap16.occupancy[2][6] = { isBuilding: true, dead: false };
+ok('视线: 建筑挡视线', hasVisionLOS(vmap16, 2, 2, 10, 2) === false);
+
+// canSee：距离 + 视线
+vmap16 = buildOpenMap();
+const vm16 = { x: 2, y: 2, isBuilding: false, size: 1 };
+const ve16 = { x: 10, y: 2, dead: false, isBuilding: false, size: 1, team: TEAM_ENEMY };
+ok('视野: 视野内开阔目标可见', canSee({ map: vmap16 }, vm16, ve16));
+ok('视野: 超距目标不可见', canSee({ map: vmap16 }, vm16, { x: 20, y: 2, dead: false, isBuilding: false, size: 1, team: TEAM_ENEMY }) === false);
+vmap16.occupancy[2][6] = { isBuilding: true, dead: false };
+ok('视野: 被楼挡住不可见', canSee({ map: vmap16 }, vm16, ve16) === false);
+ok('视野: 视野内建筑无需视线即可知', canSee({ map: vmap16 }, vm16, { x: 6, y: 2, dead: false, isBuilding: true, size: 1, team: TEAM_ENEMY }));
+
+// 快照：视野 / 报点 / 标记 三种来源
+resetMember(b0, flat.x, flat.y);              // 蓝1号
+resetMember(r0, flat.x + 5, flat.y);          // 红1号 5 格外（开阔，可见）
+resetMember(r1, 60, 60);                      // 红2号 挪远（不可见）
+world.spatialDirty = true;
+world.squadIntel[TEAM_PLAYER] = {};
+world.squadIntel[TEAM_ENEMY] = {};
+const snapCtx16 = {
+  spec: specOf(b0), board: boardReal, events: [], allyMsgs: [], enemyMsgs: [],
+  lastCommand: null, currentAction: null, godTargetId: 0,
+};
+const snapVis16 = JSON.parse(buildSnapshot(world, b0, snapCtx16));
+ok('快照: 视野内敌人进入可选目标（来源=视野）', snapVis16['可选目标'].some((t) => t.id === r0.id && t['来源'] === '视野'), JSON.stringify(snapVis16['可选目标']));
+
+world.squadIntel[TEAM_PLAYER][r1.id] = { x: r1.x, y: r1.y, atFrame: 1 };
+const snapRep16 = JSON.parse(buildSnapshot(world, b0, snapCtx16));
+ok('快照: 队友报点敌人以「报点」出现', snapRep16['可选目标'].some((t) => t.id === r1.id && t['来源'] === '报点'), JSON.stringify(snapRep16['可选目标']));
+
+world.squadIntel[TEAM_PLAYER] = {};
+const snapMark16 = JSON.parse(buildSnapshot(world, b0, Object.assign({}, snapCtx16, { godTargetId: r1.id })));
+ok('快照: 上帝标记置顶为「标记」', snapMark16['可选目标'][0].id === r1.id && snapMark16['可选目标'][0]['来源'] === '标记', JSON.stringify(snapMark16['可选目标']));
+
+// 右键标记：全队立即锁定
+blueTeam.forEach((e, i) => resetMember(e, flat.x + i, flat.y));
+const nMark16 = am.markEnemy(world, r0);
+eq('标记: 己方三名成员受命', nMark16, 3);
+ok('标记: 成员攻击目标立即就位', blueTeam.every((e) => e.attackTarget === r0));
+eq('标记: godTargetId 挂上供快照使用', am.agents.get('blue_1').godTargetId, r0.id);
+const hr16 = world.entities.find((e) => e.aiIgnore && !e.dead);
+if (hr16) eq('标记: 不标记中立高楼', am.markEnemy(world, hr16), 0);
+
+// 回血：脱战 + 基地附近 → 回血中；挨打/回满则否
+const hq16 = findHQ(world, TEAM_PLAYER);
+resetMember(b0, 5, 52);   // 基地西侧、距指挥所中心约 4 格（且离停机坪 >8，避免触发"上车"分支）
+b0.hp = Math.floor(b0.maxHp * 0.3);
+b0.lastDamagedTimer = 0;
+ok('回血: 基地附近残血脱战=回血中', isRecovering(world, b0));
+b0.lastDamagedTimer = 120;
+ok('回血: 挨打中不算回血', isRecovering(world, b0) === false);
+b0.lastDamagedTimer = 0;
+b0.hp = Math.ceil(b0.maxHp * RECOVER_HP_RATIO);
+ok('回血: 回满七成即视为可再战', isRecovering(world, b0) === false);
+
+// 兜底：回血驻守 + 己方指挥所挨打回防
+b0.hp = Math.floor(b0.maxHp * 0.3);
+const dRecover16 = fallbackDecide(world, b0, { spec: specOf(b0), board: boardReal });
+eq('兜底: 回血中驻守不反推', dRecover16.action, 'hold');
+resetMember(b0, flat.x, flat.y);
+b0.hp = b0.maxHp;
+hq16.lastDamagedTimer = 120;
+world.spatialDirty = true;
+const dDefend16 = fallbackDecide(world, b0, { spec: specOf(b0), board: boardReal });
+eq('兜底: 己方指挥所挨打回防', dDefend16.action, 'guard');
+hq16.lastDamagedTimer = 0;
 
 // ==================== 汇总 ====================
 console.log('\n通过 ' + passed + ' 项' + (failures.length ? '，失败 ' + failures.length + ' 项：' : '，全部通过 ✅'));
