@@ -1,8 +1,7 @@
 import { MAP_WIDTH, MAP_HEIGHT, TILE_SIZE, CONCRETE } from './constants.js';
 import { BUILDING_DEFS, DEFENSE_DEFS, UNIT_DEFS } from './definitions.js';
 import { clampCameraToMap } from './core/camera.js';
-
-const CHAT_PANEL_HEIGHT = 152;
+import { layout } from './core/layout.js';
 
 export class InputHandler {
   constructor(canvas, minimapCanvas) {
@@ -10,22 +9,21 @@ export class InputHandler {
     this.minimapCanvas = minimapCanvas;
     this.keys = {};
     this.mouse = { x: 0, y: 0, worldX: 0, worldY: 0, mapX: 0, mapY: 0, down: false, inCanvas: false };
-    this.dragSelect = { active: false, startX: 0, startY: 0, endX: 0, endY: 0 };
     this.pendingAttackMove = false;
     this._callbacks = null;
     this._gameState = null;
     this._camera = null;
     this.lastNumberKey = 0;
     this.lastNumberTime = 0;
-    // 中键拖拽平移视野
+    // 左键拖拽平移视野（右击选成员、再右键地图下令）
     this.panning = { active: false, lastX: 0, lastY: 0 };
   }
 
   /**
    * 读档后重新绑定世界与相机。
    * 读档会构造全新的 GameState / camera 对象，而 setup 中的事件闭包捕获的是
-   * 初次 setup 时的引用。若不重新绑定，读档后所有鼠标操作（点选、框选、建造放置、
-   * 移动命令、滚轮缩放、小地图导航）都会作用在读档前的旧世界上。
+   * 初次 setup 时的引用。若不重新绑定，读档后所有鼠标操作（选成员、建造放置、
+   * 移动命令、拖图、滚轮缩放、小地图导航）都会作用在读档前的旧世界上。
    */
   rebind(gameState, camera) {
     this._gameState = gameState;
@@ -39,23 +37,21 @@ export class InputHandler {
     var self = this;
     var canvas = this.canvas;
     var mouse = this.mouse;
-    var dragSelect = this.dragSelect;
 
     canvas.addEventListener('mousemove', function(ev) {
       var rect = canvas.getBoundingClientRect();
       mouse.x = ev.clientX - rect.left;
       mouse.y = ev.clientY - rect.top;
-      var viewW = canvas.width - 300;
-      var viewH = canvas.height;
-      mouse.inCanvas = (mouse.x >= 0 && mouse.x < viewW && mouse.y >= 0 && mouse.y < viewH);
-      var clampedX = Math.max(0, Math.min(viewW, mouse.x));
+      var viewW = layout.viewW;
+      var viewH = layout.viewH;
+      mouse.inCanvas = (mouse.x >= layout.chatWidth && mouse.x < layout.chatWidth + viewW && mouse.y >= 0 && mouse.y < viewH);
+      var clampedX = Math.max(layout.chatWidth, Math.min(layout.chatWidth + viewW, mouse.x));
       var clampedY = Math.max(0, Math.min(viewH, mouse.y));
-      mouse.worldX = (clampedX + self._camera.x) / self._camera.zoom;
+      mouse.worldX = (clampedX - layout.chatWidth + self._camera.x) / self._camera.zoom;
       mouse.worldY = (clampedY + self._camera.y) / self._camera.zoom;
       mouse.mapX = Math.max(0, Math.min(MAP_WIDTH - 1, Math.floor(mouse.worldX / TILE_SIZE)));
       mouse.mapY = Math.max(0, Math.min(MAP_HEIGHT - 1, Math.floor(mouse.worldY / TILE_SIZE)));
-      if (dragSelect.active) { dragSelect.endX = mouse.x; dragSelect.endY = mouse.y; }
-      // 中键拖拽：按住中键平移视野（红警/RTS 的常见操作）
+      // 左键/中键拖拽：按住平移视野（红警/RTS 的常见操作）
       if (self.panning.active) {
         const dx = ev.clientX - self.panning.lastX;
         const dy = ev.clientY - self.panning.lastY;
@@ -63,7 +59,7 @@ export class InputHandler {
         self.panning.lastY = ev.clientY;
         self._camera.x -= dx;
         self._camera.y -= dy;
-        clampCameraToMap(self._camera, canvas.width - 300, canvas.height - CHAT_PANEL_HEIGHT);
+        clampCameraToMap(self._camera, layout.viewW, layout.viewH);
       }
     });
 
@@ -77,6 +73,7 @@ export class InputHandler {
         return;
       }
       if (ev.button === 0) {
+        // 左键：特殊模式（超武瞄准/修理/出售/放置）优先；否则进入「抓取地图」平移
         if (callbacks.superWeaponTargeting && mouse.inCanvas) {
           if (callbacks.onSuperWeaponFire) callbacks.onSuperWeaponFire(callbacks.superWeaponTargeting, mouse.mapX, mouse.mapY);
           return;
@@ -106,98 +103,21 @@ export class InputHandler {
           } else { callbacks.onNotify('\u65e0\u6cd5\u5728\u6b64\u5904\u5efa\u9020', 'warn'); callbacks.onPlayCancelSound(); }
           return;
         }
-        if (self.pendingAttackMove && callbacks.selectedUnits.length > 0 && mouse.inCanvas) {
-          var amTarget = self._gameState.getEntityAt(mouse.worldX, mouse.worldY);
-          if (amTarget && amTarget.team !== self._gameState.humanTeam && !amTarget.dead) {
-            callbacks.selectedUnits.forEach(function(u) {
-              u.attackTarget = amTarget; u.path = []; u.pathIndex = 0;
-              u.attackMoveTarget = null; u.guardPos = null; u.fleeTo = null;
-            });
-            self._gameState.addFloatingText(amTarget.getCenterX(), amTarget.getCenterY() - 15, '\u653b\u51fb!', '#e74c3c');
-          } else {
-            var amx = mouse.mapX, amy = mouse.mapY;
-            callbacks.selectedUnits.forEach(function(u) {
-              u.attackTarget = null;
-              u.attackMoveTarget = { x: amx, y: amy };
-              u.guardPos = null; u.fleeTo = null;
-              u.path = self._gameState.map.findPath(Math.floor(u.x), Math.floor(u.y), amx, amy, 3000, u, true);
-              u.pathIndex = 0;
-            });
-            self._gameState.addFloatingText(mouse.worldX, mouse.worldY, 'A\u2192', '#e67e22');
-          }
-          self.pendingAttackMove = false;
-          return;
-        }
-        dragSelect.active = true;
-        dragSelect.startX = mouse.x; dragSelect.startY = mouse.y;
-        dragSelect.endX = mouse.x; dragSelect.endY = mouse.y;
+        // 左键抓取移动地图
+        self.panning.active = true;
+        self.panning.lastX = ev.clientX;
+        self.panning.lastY = ev.clientY;
       }
     });
 
     canvas.addEventListener('mouseup', function(ev) {
-      if (ev.button === 1) { self.panning.active = false; return; }
-      if (ev.button === 0 && dragSelect.active) {
-        var dx = Math.abs(dragSelect.endX - dragSelect.startX);
-        var dy = Math.abs(dragSelect.endY - dragSelect.startY);
-        if (dx > 8 || dy > 8) {
-          var wx1 = (Math.min(dragSelect.startX, dragSelect.endX) + self._camera.x) / self._camera.zoom;
-          var wy1 = (Math.min(dragSelect.startY, dragSelect.endY) + self._camera.y) / self._camera.zoom;
-          var wx2 = (Math.max(dragSelect.startX, dragSelect.endX) + self._camera.x) / self._camera.zoom;
-          var wy2 = (Math.max(dragSelect.startY, dragSelect.endY) + self._camera.y) / self._camera.zoom;
-          if (!ev.shiftKey) {
-            callbacks.selectedUnits.forEach(function(u) { u.selected = false; });
-            callbacks.selectedUnits.length = 0;
-            if (callbacks.selectedBuilding) { callbacks.selectedBuilding.selected = false; callbacks.selectedBuilding = null; }
-          }
-          var bu = self._gameState.getEntitiesInRect(wx1, wy1, wx2, wy2);
-          bu.forEach(function(u) {
-            if (callbacks.selectedUnits.indexOf(u) < 0) { u.selected = true; callbacks.selectedUnits.push(u); }
-          });
-          if (bu.length > 0) callbacks.onPlaySelectSound();
-        } else {
-          var clicked = self._gameState.getEntityAt(mouse.worldX, mouse.worldY);
-          if (clicked && clicked.team === self._gameState.humanTeam && !clicked.dead && !clicked.isMount) {
-            if (clicked.isBuilding) {
-              callbacks.selectedUnits.forEach(function(u) { u.selected = false; });
-              callbacks.selectedUnits.length = 0;
-              if (callbacks.selectedBuilding) callbacks.selectedBuilding.selected = false;
-              callbacks.selectedBuilding = clicked; clicked.selected = true;
-            } else {
-              if (ev.shiftKey) {
-                if (callbacks.selectedUnits.indexOf(clicked) >= 0) {
-                  clicked.selected = false;
-                  var idx = callbacks.selectedUnits.indexOf(clicked);
-                  if (idx >= 0) callbacks.selectedUnits.splice(idx, 1);
-                } else { clicked.selected = true; callbacks.selectedUnits.push(clicked); }
-              } else {
-                callbacks.selectedUnits.forEach(function(u) { u.selected = false; });
-                callbacks.selectedUnits.length = 0;
-                if (callbacks.selectedBuilding) { callbacks.selectedBuilding.selected = false; callbacks.selectedBuilding = null; }
-                clicked.selected = true; callbacks.selectedUnits.push(clicked);
-              }
-            }
-            callbacks.onPlaySelectSound();
-          } else if (ev.shiftKey) {
-            var dbl = self._gameState.getEntityAt(mouse.worldX, mouse.worldY);
-            if (!dbl) {
-              if (!ev.shiftKey) {
-                callbacks.selectedUnits.forEach(function(u) { u.selected = false; });
-                callbacks.selectedUnits.length = 0;
-                if (callbacks.selectedBuilding) { callbacks.selectedBuilding.selected = false; callbacks.selectedBuilding = null; }
-              }
-            }
-          } else if (!clicked) {
-            callbacks.selectedUnits.forEach(function(u) { u.selected = false; });
-            callbacks.selectedUnits.length = 0;
-            if (callbacks.selectedBuilding) { callbacks.selectedBuilding.selected = false; callbacks.selectedBuilding = null; }
-          }
-        }
-        dragSelect.active = false;
-      }
+      if (ev.button === 0 || ev.button === 1) { self.panning.active = false; }
     });
 
     canvas.addEventListener('contextmenu', function(ev) {
       ev.preventDefault();
+      // 攻击移动（A 键）标志：任何一次右键都消费它
+      var amMove = self.pendingAttackMove;
       self.pendingAttackMove = false;
       if (callbacks.superWeaponTargeting) { callbacks.superWeaponTargeting = null; if (callbacks.onNotify) callbacks.onNotify('\u5df2\u53d6\u6d88', 'info'); return; }
       if (callbacks.placingBuilding) { callbacks.placingBuilding = false; callbacks.placingType = null; callbacks.onPlayCancelSound(); return; }
@@ -208,19 +128,32 @@ export class InputHandler {
         return;
       }
       var rc = self._gameState.getEntityAt(mouse.worldX, mouse.worldY);
-      // 沙盘：上帝右键标记敌人 → 全队攻击（无论是否选中，上帝指挥的是整队）
-      if (rc && rc.team !== self._gameState.humanTeam && !rc.dead && callbacks.onMarkEnemy) {
-        callbacks.onMarkEnemy(rc);
+
+      // 右键点己方成员 → 选中（Shift 加选/减选；单选则清空重选）
+      if (rc && !rc.dead && !rc.isMount && !rc.isBuilding && rc.team === self._gameState.humanTeam) {
+        if (ev.shiftKey) {
+          var si = callbacks.selectedUnits.indexOf(rc);
+          if (si >= 0) { rc.selected = false; callbacks.selectedUnits.splice(si, 1); }
+          else { rc.selected = true; callbacks.selectedUnits.push(rc); }
+        } else {
+          callbacks.selectedUnits.forEach(function(u) { u.selected = false; });
+          callbacks.selectedUnits.length = 0;
+          if (callbacks.selectedBuilding) { callbacks.selectedBuilding.selected = false; callbacks.selectedBuilding = null; }
+          rc.selected = true;
+          callbacks.selectedUnits.push(rc);
+        }
+        callbacks.onPlaySelectSound();
+        return;
       }
+
+      // 右键点敌方 → 命令当前选中成员攻击（作用域由 main 的 onMarkEnemy 按选中集处理）
+      if (rc && !rc.dead && rc.team !== self._gameState.humanTeam && callbacks.onMarkEnemy) {
+        callbacks.onMarkEnemy(rc);
+        return;
+      }
+
       if (callbacks.selectedUnits.length > 0) {
-        if (rc && rc.team !== self._gameState.humanTeam && !rc.dead) {
-          callbacks.selectedUnits.forEach(function(u) {
-            u.attackTarget = rc; u.path = []; u.pathIndex = 0;
-            u.attackMoveTarget = null; u.guardPos = null; u.fleeTo = null;
-          });
-          self._gameState.addFloatingText(rc.getCenterX(), rc.getCenterY() - 15, '\u76ee\u6807!', '#e74c3c');
-          if (!callbacks.onMarkEnemy) callbacks.onNotify('\u653b\u51fb ' + rc.name, 'info');
-        } else if (rc && rc.isMount && rc.team === self._gameState.humanTeam && !rc.dead) {
+        if (rc && rc.isMount && rc.team === self._gameState.humanTeam && !rc.dead) {
           // 右键己方停放载具 → 走过去乘驾
           callbacks.selectedUnits.forEach(function(u) {
             if (!u.isMember || u.mountType) return;
@@ -240,6 +173,7 @@ export class InputHandler {
           });
           callbacks.onNotify('\u62a4\u536b ' + rc.name, 'info');
         } else {
+          // 空地：普通移动；A 键模式下为「攻击移动」（沿路遇敌即打）
           var cx = mouse.mapX, cy = mouse.mapY;
           var spread = Math.ceil(Math.sqrt(callbacks.selectedUnits.length));
           callbacks.selectedUnits.forEach(function(u, idx) {
@@ -248,13 +182,13 @@ export class InputHandler {
             var tx2 = Math.max(0, Math.min(MAP_WIDTH - 1, cx + ox));
             var ty2 = Math.max(0, Math.min(MAP_HEIGHT - 1, cy + oy));
             u.attackTarget = null;
-            u.attackMoveTarget = null;
             u.guardPos = null; u.fleeTo = null;
             u.burstRemaining = 0;
+            u.attackMoveTarget = amMove ? { x: tx2, y: ty2 } : null;
             u.path = self._gameState.map.findPath(Math.floor(u.x), Math.floor(u.y), tx2, ty2, 3000, u, true);
             u.pathIndex = 0;
           });
-          self._gameState.addFloatingText(mouse.worldX, mouse.worldY, '\u2192', '#2ecc71');
+          self._gameState.addFloatingText(mouse.worldX, mouse.worldY, amMove ? 'A\u2192' : '\u2192', amMove ? '#e67e22' : '#2ecc71');
         }
       }
       if (callbacks.selectedBuilding && callbacks.selectedBuilding.isBuilding) {
@@ -329,7 +263,7 @@ export class InputHandler {
       if (ev.code === 'Home' || ev.code === 'Numpad5') {
         var base = self._gameState.entities.find(function(e) { return e.team === self._gameState.humanTeam && e.type === 'base'; });
         if (base) {
-          self._camera.x = base.x * TILE_SIZE * self._camera.zoom - (canvas.width - 300) / 2;
+          self._camera.x = base.x * TILE_SIZE * self._camera.zoom - layout.viewW / 2;
           self._camera.y = base.y * TILE_SIZE * self._camera.zoom - canvas.height / 2;
           self._camera.x = Math.max(0, self._camera.x); self._camera.y = Math.max(0, self._camera.y);
         }
@@ -360,15 +294,15 @@ export class InputHandler {
         if (ev.deltaY < 0) self._camera.zoom = Math.min(2.0, self._camera.zoom + 0.1);
         else self._camera.zoom = Math.max(0.5, self._camera.zoom - 0.1);
         var zoomRatio = self._camera.zoom / oldZoom;
-        var viewW = canvas.width - 300;
-        self._camera.x = self._camera.x * zoomRatio + (mouse.x - viewW / 2) * (1 - zoomRatio);
+        var viewW = layout.viewW;
+        self._camera.x = self._camera.x * zoomRatio + (mouse.x - layout.chatWidth - viewW / 2) * (1 - zoomRatio);
         self._camera.y = self._camera.y * zoomRatio + (mouse.y - canvas.height / 2) * (1 - zoomRatio);
       } else if (ev.shiftKey) {
         self._camera.x += ev.deltaY * 0.5;
       } else {
         self._camera.y += ev.deltaY * 0.5;
       }
-      clampCameraToMap(self._camera, canvas.width - 300, canvas.height - CHAT_PANEL_HEIGHT);
+      clampCameraToMap(self._camera, layout.viewW, layout.viewH);
     }, { passive: false });
 
     var mmCanvas = this.minimapCanvas;
@@ -390,9 +324,9 @@ export class InputHandler {
           u.pathIndex = 0;
         });
       } else {
-        self._camera.x = Math.floor(mx / sxR * TILE_SIZE * self._camera.zoom - (canvas.width - 300) / 2);
+        self._camera.x = Math.floor(mx / sxR * TILE_SIZE * self._camera.zoom - layout.viewW / 2);
         self._camera.y = Math.floor(my / syR * TILE_SIZE * self._camera.zoom - canvas.height / 2);
-        clampCameraToMap(self._camera, canvas.width - 300, canvas.height - CHAT_PANEL_HEIGHT);
+        clampCameraToMap(self._camera, layout.viewW, layout.viewH);
       }
     });
     mmCanvas.addEventListener('contextmenu', function(ev) { ev.preventDefault(); });

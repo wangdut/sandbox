@@ -17,6 +17,7 @@ import { AgentManager } from './agents/AgentManager.js';
 import { CommandBus } from './core/commandBus.js';
 import { session, setHumanTeam } from './core/session.js';
 import { clampCameraToMap } from './core/camera.js';
+import { layout, CHAT_MIN_WIDTH, CHAT_MAX_WIDTH } from './core/layout.js';
 import { MEMBERS, boardVehicle } from './sandbox/memberDefs.js';
 import { AudioManager, audioManager } from './AudioManager.js';
 import { SaveManager } from './SaveManager.js';
@@ -71,7 +72,7 @@ function startGame(side) {
   // 开局把镜头对准"我方"指挥所
   const ownHq = findHQ(gameState, session.humanTeam);
   if (ownHq) {
-    camera.x = (ownHq.x + 1.5) * TILE_SIZE * camera.zoom - (canvas.width - 300) / 2;
+    camera.x = (ownHq.x + 1.5) * TILE_SIZE * camera.zoom - layout.viewW / 2;
     camera.y = (ownHq.y + 1.5) * TILE_SIZE * camera.zoom - canvas.height / 2;
   }
   clampCamera();
@@ -138,8 +139,10 @@ function startGame(side) {
     onSuperWeaponFire: fireSuperWeapon,
     onMarkEnemy: function(target) {
       if (!agentManager) return;
-      const n = agentManager.markEnemy(gameState, target);
-      if (n > 0) notify('\u5df2\u6807\u8bb0 ' + target.name + '\uff0c\u5168\u961f\u653b\u51fb', 'info');
+      // 只命令当前选中的成员；选中集为空（如 ESC 后）回退全员，保持"默认全选=全队"
+      const scope = selectedUnits.filter(function(u) { return u.isMember && !u.dead; });
+      const n = agentManager.markEnemy(gameState, target, scope.length ? scope : null);
+      if (n > 0) notify('\u5df2\u6807\u8bb0 ' + target.name + '\uff0c\u653b\u51fb', 'info');
       else notify('\u65e0\u6cd5\u6807\u8bb0\u8be5\u76ee\u6807', 'warn');
     }
   });
@@ -227,6 +230,8 @@ function startGame(side) {
   window.__memberSystem = memberSystem;
   window.__agents = agentManager;
   window.__commandBus = commandBus;
+  window.__layout = layout;
+  setupChatResizer();
   ui.renderGroupBar(gameState);
   ui.updateBuildList(gameState);
   // 开局自动选中己方两名成员，玩家可立即右键指挥
@@ -265,7 +270,6 @@ function wireSuperWeaponCallbacks(swm) {
 // 固定步长主循环用：把「帧」与真实时间对齐
 const FRAME_MS = 1000 / FPS;
 const MAX_STEPS_PER_RAF = 8;   // 单次 rAF 最多补多少帧，避免切后台回来一次性狂算
-const CHAT_PANEL_HEIGHT = 152; // 底部命令栏高度：相机可视区与边缘滚动都要扣掉它
 let lastFrameTime = 0;
 let accumulator = 0;
 
@@ -320,10 +324,9 @@ function gameLoop(timestamp) {
     input ? input._callbacks.placingBuilding : placingBuilding,
     input ? input._callbacks.placingType : placingType,
     input ? input.mouse : { x: 0, y: 0, worldX: 0, worldY: 0, mapX: 0, mapY: 0, inCanvas: false },
-    input ? input.dragSelect : { active: false, startX: 0, startY: 0, endX: 0, endY: 0 },
     input ? input._callbacks.activeAction : activeAction,
     input ? input._callbacks.superWeaponTargeting : null,
-    gamePaused, canvas.width - 300, canvas.height);
+    gamePaused, layout.viewW, layout.viewH);
   requestAnimationFrame(gameLoop);
 }
 
@@ -334,23 +337,25 @@ function updateCamera() {
   if (keys['ArrowRight']) camera.x += speed;
   if (keys['ArrowUp']) camera.y -= speed;
   if (keys['ArrowDown']) camera.y += speed;
-  // 边缘滚动的判定区要避开底部聊天栏与右侧栏，否则鼠标根本到不了那条边
+  // 边缘滚动的判定区要避开左侧聊天栏与右侧栏，否则鼠标根本到不了那条边
   var edge = 26;
-  var viewW = canvas.width - 300;
-  var viewH = canvas.height - CHAT_PANEL_HEIGHT;
+  var viewW = layout.viewW;
+  var viewH = layout.viewH;
+  var left = layout.chatWidth;
+  var right = layout.chatWidth + viewW;
   var mouse = input ? input.mouse : { inCanvas: false, x: 0, y: 0 };
   if (mouse.inCanvas) {
-    if (mouse.x > 0 && mouse.x < edge && mouse.y > 44 && mouse.y < viewH) camera.x -= 14;
-    if (mouse.x > viewW - edge && mouse.x < viewW && mouse.y > 44 && mouse.y < viewH) camera.x += 14;
-    if (mouse.y > 44 && mouse.y < 44 + edge && mouse.x > 0 && mouse.x < viewW) camera.y -= 14;
-    if (mouse.y > viewH - edge && mouse.y < viewH && mouse.x > 0 && mouse.x < viewW) camera.y += 14;
+    if (mouse.x > left && mouse.x < left + edge && mouse.y > 44 && mouse.y < viewH) camera.x -= 14;
+    if (mouse.x > right - edge && mouse.x < right && mouse.y > 44 && mouse.y < viewH) camera.x += 14;
+    if (mouse.y > 44 && mouse.y < 44 + edge && mouse.x > left && mouse.x < right) camera.y -= 14;
+    if (mouse.y > viewH - edge && mouse.y < viewH && mouse.x > left && mouse.x < right) camera.y += 14;
   }
   clampCamera();
 }
 
 /** 相机夹取（含"地图比视口小则居中"），统一入口避免各处写不同的夹取逻辑 */
 function clampCamera() {
-  clampCameraToMap(camera, canvas.width - 300, canvas.height - CHAT_PANEL_HEIGHT);
+  clampCameraToMap(camera, layout.viewW, layout.viewH);
 }
 
 function updateEntities() {
@@ -764,6 +769,36 @@ function toggleFullscreen() {
   }
 }
 
+/**
+ * 左侧聊天栏拖宽：拖动 #chatResizer 调整 chatWidth，同步聊天栏宽与顶栏左偏移；
+ * 拖完重夹相机（地图可视区宽度变了）。
+ */
+function setupChatResizer() {
+  const resizer = document.getElementById('chatResizer');
+  const panel = document.getElementById('chatPanel');
+  const topBar = document.getElementById('topBar');
+  if (!resizer || !panel || !topBar) return;
+  resizer.addEventListener('mousedown', function(ev) {
+    ev.preventDefault();
+    ev.stopPropagation();
+    const startX = ev.clientX;
+    const startW = layout.chatWidth;
+    function onMove(me) {
+      const w = Math.max(CHAT_MIN_WIDTH, Math.min(CHAT_MAX_WIDTH, startW + (me.clientX - startX)));
+      layout.chatWidth = w;
+      panel.style.width = w + 'px';
+      topBar.style.left = w + 'px';
+    }
+    function onUp() {
+      document.removeEventListener('mousemove', onMove);
+      document.removeEventListener('mouseup', onUp);
+      clampCamera();
+    }
+    document.addEventListener('mousemove', onMove);
+    document.addEventListener('mouseup', onUp);
+  });
+}
+
 function showHelp() { ui.showHelp(); }
 function hideHelp() { ui.hideHelp(); }
 
@@ -808,9 +843,9 @@ function selectGroup(n) {
     if (sel.length > 0) {
       var cx = sel.reduce(function(s, u) { return s + u.x; }, 0) / sel.length;
       var cy = sel.reduce(function(s, u) { return s + u.y; }, 0) / sel.length;
-      camera.x = cx * TILE_SIZE * camera.zoom - (canvas.width - 300) / 2;
+      camera.x = cx * TILE_SIZE * camera.zoom - layout.viewW / 2;
       camera.y = cy * TILE_SIZE * camera.zoom - canvas.height / 2;
-      camera.x = Math.max(0, Math.min(MAP_WIDTH * TILE_SIZE * camera.zoom - (canvas.width - 300), camera.x));
+      camera.x = Math.max(0, Math.min(MAP_WIDTH * TILE_SIZE * camera.zoom - layout.viewW, camera.x));
       camera.y = Math.max(0, Math.min(MAP_HEIGHT * TILE_SIZE * camera.zoom - canvas.height, camera.y));
     }
   }

@@ -844,16 +844,21 @@ export class AgentManager {
   // ==================== 对外统计（HUD / 面板）====================
 
   /**
-   * 上帝右键标记敌人：己方全员立即锁定并攻击该目标（零 token）。
+   * 上帝右键标记敌人：被选中的己方成员立即锁定并攻击该目标（零 token）；未指定作用域时回退全员。
    * 引擎层直接改 attackTarget 保证即时响应；godTargetId 喂给快照，
    * 让成员下一轮 LLM 决策也把这个目标当「标记」优先处理，而不是以"不在视野"为由拒绝。
    * @returns 受命成员数
    */
-  markEnemy(gameState, targetEntity) {
+  markEnemy(gameState, targetEntity, scopeMembers) {
     if (!targetEntity || targetEntity.dead || targetEntity.aiIgnore) return 0;
+    // scopeMembers：只命令被选中的成员（main 按选中集传入）；为空则回退全员
+    const scoped = (Array.isArray(scopeMembers) && scopeMembers.length > 0)
+      ? new Set(scopeMembers.map(function (m) { return m.memberKey; }).filter(Boolean))
+      : null;
     let applied = 0;
     this.agents.forEach(function (agent) {
       if (agent.spec.team !== session.humanTeam) return;
+      if (scoped && !scoped.has(agent.spec.key)) return;
       for (let i = 0; i < gameState.entities.length; i++) {
         const e = gameState.entities[i];
         if (!e.isMember || e.dead || e.memberKey !== agent.spec.key) continue;

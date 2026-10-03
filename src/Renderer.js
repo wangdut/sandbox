@@ -4,6 +4,7 @@ import { TILE_SIZE, MAP_WIDTH, MAP_HEIGHT, GRASS, WATER, ORE, ROCK, CONCRETE, SA
          COLOR_ALLIED, COLOR_ALLIED_DARK, COLOR_SOVIET, COLOR_SOVIET_DARK, TYPE_AIRCRAFT, TYPE_HELICOPTER, TYPE_AIRSHIP, TEAM_NEUTRAL } from './constants.js';
 import { BUILDING_DEFS, DEFENSE_DEFS, UNIT_DEFS, SUPER_WEAPONS, FACTION_ALLIED, FACTION_SOVIET } from './definitions.js';
 import { drawBuilding as drawBuildingSprite, drawUnit as drawUnitSprite, drawMemberLabel, memberLabelHeight, MEMBER_LABEL_FONT, drawSandbagWall } from './Sprites.js';
+import { layout } from './core/layout.js';
 
 // 画布内文字字号：按用户反馈整体放大约 35%（气泡 10→13.5、飘字 12→16）
 export const SPEECH_FONT = 13.5;
@@ -502,13 +503,14 @@ export class Renderer {
     }
   }
 
-  render(gameState, camera, frameCount, selectedUnits, selectedBuilding, placingBuilding, placingType, mouse, dragSelect, activeAction, superWeaponTargeting, gamePaused, viewWidth, viewHeight) {
+  render(gameState, camera, frameCount, selectedUnits, selectedBuilding, placingBuilding, placingType, mouse, activeAction, superWeaponTargeting, gamePaused, viewWidth, viewHeight) {
     var ctx = this.ctx;
     ctx.fillStyle = '#0a0a0a';
     ctx.fillRect(0, 0, this.canvas.width, this.canvas.height);
 
     var zoom = camera.zoom;
     ctx.save();
+    ctx.translate(layout.chatWidth, 0);   // 地图右移一个左侧聊天栏宽度（聊天栏与右侧栏之间才是可视区）
     ctx.beginPath();
     ctx.rect(0, 0, viewWidth, viewHeight);
     ctx.clip();
@@ -924,20 +926,6 @@ export class Renderer {
 
     // === Screen-space overlays (not affected by zoom) ===
 
-    // Drag select rectangle
-    if (dragSelect.active) {
-      var drx = Math.min(dragSelect.startX, dragSelect.endX);
-      var dry = Math.min(dragSelect.startY, dragSelect.endY);
-      var drw = Math.abs(dragSelect.endX - dragSelect.startX);
-      var drh = Math.abs(dragSelect.endY - dragSelect.startY);
-      ctx.fillStyle = 'rgba(46,204,113,0.12)';
-      ctx.fillRect(drx, dry, drw, drh);
-      ctx.strokeStyle = '#2ecc71'; ctx.lineWidth = 1.5;
-      ctx.setLineDash([5, 3]);
-      ctx.strokeRect(drx, dry, drw, drh);
-      ctx.setLineDash([]);
-    }
-
     // Action-mode cursor overlay
     if (activeAction) {
       ctx.fillStyle = activeAction === 'repair' ? 'rgba(46,204,113,0.2)' : 'rgba(241,196,15,0.2)';
@@ -953,14 +941,14 @@ export class Renderer {
     // Game paused overlay
     if (gamePaused) {
       ctx.fillStyle = 'rgba(0,0,0,0.4)';
-      ctx.fillRect(0, 0, viewWidth, this.canvas.height);
+      ctx.fillRect(layout.chatWidth, 0, viewWidth, this.canvas.height);
       ctx.fillStyle = '#fff';
       ctx.font = 'bold 36px Arial';
       ctx.textAlign = 'center';
-      ctx.fillText('\u6682\u505C', viewWidth / 2, this.canvas.height / 2);
+      ctx.fillText('\u6682\u505C', layout.chatWidth + viewWidth / 2, this.canvas.height / 2);
       ctx.font = '14px Arial';
       ctx.fillStyle = '#aaa';
-      ctx.fillText('\u6309 Space \u7EE7\u7EED', viewWidth / 2, this.canvas.height / 2 + 30);
+      ctx.fillText('\u6309 Space \u7EE7\u7EED', layout.chatWidth + viewWidth / 2, this.canvas.height / 2 + 30);
       ctx.textAlign = 'left';
     }
 

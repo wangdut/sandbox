@@ -30,6 +30,13 @@ body.sandbox #buildList,
 body.sandbox #actionPanel { display: none; }
 body.sandbox #superWeaponPanel { display: none !important; }
 
+/* 顶栏被左侧聊天栏挤占后变窄：允许换行，避免倍率输入框与按钮溢出 */
+body.sandbox #topBar {
+  height: auto; min-height: 44px;
+  flex-wrap: wrap; align-content: center; row-gap: 4px;
+  padding: 4px 16px;
+}
+
 /* ===== 金属面板通用质感（斜面 + 细扫描线） ===== */
 #sidebar, #topBar, #chatPanel, #memberPanel, #budgetPanel {
   font-family: var(--vs-font);
@@ -177,19 +184,25 @@ body.sandbox #superWeaponPanel { display: none !important; }
 body.sandbox .mode-card.easy { border-color: var(--vs-blue); }
 body.sandbox .mode-card.easy:hover { box-shadow: 0 0 18px rgba(74, 159, 212, .35); }
 
-/* ===== 聊天 / 命令面板（底部） ===== */
+/* ===== 聊天 / 命令面板（左侧竖排，可拖宽） ===== */
 #chatPanel {
   position: absolute;
-  left: 0; right: 300px; bottom: 0;
-  height: 152px;
+  top: 0; left: 0; bottom: 0;
+  width: 300px;
   background:
     repeating-linear-gradient(0deg, rgba(255, 255, 255, .012) 0 1px, transparent 1px 3px),
     linear-gradient(180deg, rgba(12, 12, 24, .88), rgba(5, 5, 12, .97));
-  border-top: 2px solid var(--vs-red);
-  box-shadow: 0 -2px 14px rgba(0, 0, 0, .6);
+  border-right: 2px solid var(--vs-red);
+  box-shadow: 2px 0 14px rgba(0, 0, 0, .6);
   display: flex; flex-direction: column;
   z-index: 9;
   font-size: 13px;
+}
+
+/* 拖宽把手：贴合聊天栏右缘，左右拖动调整宽度 */
+#chatResizer {
+  position: absolute; top: 0; right: -3px; width: 6px; height: 100%;
+  cursor: col-resize; z-index: 11;
 }
 #chatLog { flex: 1; overflow-y: auto; padding: 6px 10px; color: #b6b6c6; line-height: 1.65; }
 #chatLog::-webkit-scrollbar { width: 8px; }
@@ -245,16 +258,22 @@ body.sandbox .mode-card.easy:hover { box-shadow: 0 0 18px rgba(74, 159, 212, .35
 
 /* ===== C3 界面深化：铆接金属板 / 斜面按钮 / 阵营色条 ===== */
 
-/* 铆钉条：顶栏下沿与聊天面板上沿，模拟装甲板螺栓 */
-#topBar::after, #chatPanel::after {
+/* 铆钉条：顶栏下沿与聊天面板右沿，模拟装甲板螺栓 */
+#topBar::after {
   content: ''; position: absolute; left: 0; right: 0; height: 3px;
   background-image: radial-gradient(circle at 3px 1.5px,
     rgba(255, 255, 255, .22) 0 1px, rgba(0, 0, 0, .55) 1px 1.7px, transparent 1.9px);
   background-size: 22px 3px;
   pointer-events: none;
+  bottom: 1px;
 }
-#topBar::after { bottom: 1px; }
-#chatPanel::after { top: 2px; }
+#chatPanel::after {
+  content: ''; position: absolute; top: 0; bottom: 0; right: 0; width: 3px;
+  background-image: radial-gradient(circle at 1.5px 3px,
+    rgba(255, 255, 255, .22) 0 1px, rgba(0, 0, 0, .55) 1px 1.7px, transparent 1.9px);
+  background-size: 3px 22px;
+  pointer-events: none;
+}
 
 /* 侧栏内沿阵营色条：蓝方视角在上、红方威胁在下 */
 #sidebar::before {
@@ -299,5 +318,5 @@ body.sandbox .mode-card.easy:hover { box-shadow: 0 0 18px rgba(74, 159, 212, .35
     linear-gradient(var(--vs-gold), var(--vs-gold)) right bottom / 2px 12px no-repeat;
 }
 
-/* 聊天面板：军机控制台质感（内高光 + 更重的下压阴影） */
-#chatPanel { box-shadow: 0 -2px 14px rgba(0, 0, 0, .6), inset 0 1px 0 rgba(255, 255, 255, .07); }
+/* 聊天面板：军机控制台质感（内高光 + 更重的右压阴影） */
+#chatPanel { box-shadow: 2px 0 14px rgba(0, 0, 0, .6), inset 1px 0 0 rgba(255, 255, 255, .07); }

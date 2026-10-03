@@ -27,7 +27,7 @@
       <p>粘贴 DeepSeek Key<br>选择模型与预算<br>（新窗口打开）</p>
     </a>
   </div>
-  <p class="start-hint">左键选择 &nbsp;·&nbsp; 右键移动/攻击 &nbsp;·&nbsp; W 切换武器 &nbsp;·&nbsp; 中键拖动视野 &nbsp;·&nbsp; 底部输入框打字下令 &nbsp;·&nbsp; 摧毁对方指挥所</p>
+  <p class="start-hint">左键拖动视野 &nbsp;·&nbsp; 右键选成员 · 再右键下令 &nbsp;·&nbsp; W 切换武器 &nbsp;·&nbsp; 左侧输入框打字下令 &nbsp;·&nbsp; 摧毁对方指挥所</p>
 </div>
 
 <div id="gameOver">
@@ -111,7 +111,7 @@
     <button class="action-btn" id="btnStop" onclick="commandStop()" title="停止所有动作">■ 停止</button>
   </div>
   <div id="selectionInfo">
-    <span class="info-hint">左键选择 · 右键移动/攻击 · 拖拽框选</span>
+    <span class="info-hint">右键选成员 · 再右键地图下令（攻击/守护/移动）</span>
   </div>
   <div id="superWeaponPanel" class="hidden">
     <div id="swHeader">SUPER WEAPONS</div>
@@ -137,6 +137,7 @@
 <button id="helpFAB" onclick="showHelp()">操作说明</button>
 
 <div id="chatPanel">
+  <div id="chatResizer" title="拖动调整宽度"></div>
   <div id="chatLog"></div>
   <div id="chatQuick">
     <button data-quick="allAttack" title="命令全体成员进攻敌方指挥所">总攻</button>
@@ -162,14 +163,13 @@
 <div id="helpOverlay">
   <div id="helpBox">
     <h2>操作说明</h2>
-    <div class="row"><span class="desc">选择单位/建筑</span><span class="key">左键</span></div>
-    <div class="row"><span class="desc">框选多个单位</span><span class="key">拖拽左键</span></div>
-    <div class="row"><span class="desc">加选/减选</span><span class="key">Shift+左键</span></div>
-    <div class="row"><span class="desc">移动 / 攻击 / 集结</span><span class="key">右键</span></div>
+    <div class="row"><span class="desc">选中成员</span><span class="key">右键</span></div>
+    <div class="row"><span class="desc">加选/减选</span><span class="key">Shift+右键</span></div>
+    <div class="row"><span class="desc">攻击 / 守护 / 移动</span><span class="key">再右键地图</span></div>
     <div class="row"><span class="desc">停止当前命令</span><span class="key">S</span></div>
     <div class="row"><span class="desc">切换武器（机枪/火箭筒）</span><span class="key">W</span></div>
     <div class="row"><span class="desc">按住说话下令（语音）</span><span class="key">V</span></div>
-    <div class="row"><span class="desc">拖动视野</span><span class="key">中键拖拽</span></div>
+    <div class="row"><span class="desc">拖动视野</span><span class="key">左键拖拽</span></div>
     <div class="row"><span class="desc">主动攻击模式</span><span class="key">A</span></div>
     <div class="row"><span class="desc">守卫位置 (Guard)</span><span class="key">G</span></div>
     <div class="row"><span class="desc">全选己方单位</span><span class="key">Ctrl+A</span></div>

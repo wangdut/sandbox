@@ -607,6 +607,18 @@ const nMark16 = am.markEnemy(world, r0);
 eq('标记: 己方三名成员受命', nMark16, 3);
 ok('标记: 成员攻击目标立即就位', blueTeam.every((e) => e.attackTarget === r0));
 eq('标记: godTargetId 挂上供快照使用', am.agents.get('blue_1').godTargetId, r0.id);
+
+// 右键标记：带作用域只命令选中的成员（用另一目标 r1，避免与上面全员 godTargetId 混淆）
+blueTeam.forEach((e, i) => resetMember(e, flat.x + i, flat.y));
+const scopedMember16 = blueTeam[1];
+const nMarkScope16 = am.markEnemy(world, r1, [scopedMember16]);
+eq('标记: 作用域只命中选中成员', nMarkScope16, 1);
+ok('标记: 仅被选中成员锁定目标', scopedMember16.attackTarget === r1 && blueTeam[0].attackTarget !== r1 && blueTeam[2].attackTarget !== r1);
+const scopedKey16 = scopedMember16.memberKey;
+const otherKeys16 = blueTeam.map((e) => e.memberKey).filter((k) => k !== scopedKey16);
+ok('标记: 仅选中成员挂 godTargetId',
+  am.agents.get(scopedKey16).godTargetId === r1.id && otherKeys16.every((k) => am.agents.get(k).godTargetId !== r1.id));
+
 const hr16 = world.entities.find((e) => e.aiIgnore && !e.dead);
 if (hr16) eq('标记: 不标记中立高楼', am.markEnemy(world, hr16), 0);
 
