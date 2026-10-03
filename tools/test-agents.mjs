@@ -7,7 +7,7 @@ import { canDeliverShout, AgentManager } from '../src/agents/AgentManager.js';
 import { parseDecision } from '../src/agents/parser.js';
 import { CommandBus } from '../src/core/commandBus.js';
 import { MEMBERS, WEAPONS, applyWeapon, boardVehicle, dismountVehicle } from '../src/sandbox/memberDefs.js';
-import { fallbackDecide, quickCommandDecision } from '../src/agents/FallbackAI.js';
+import { fallbackDecide, quickCommandDecision, parseGodCommand } from '../src/agents/FallbackAI.js';
 import { isAIAutoTargetable } from '../src/agents/targeting.js';
 import { buildSystemPrompt, buildSnapshot } from '../src/agents/prompts.js';
 import { DEFAULT_CONFIG, resolveMemberAuth, isAgentEnabled, migrateConfig, CONFIG_SCHEMA } from '../src/agents/config.js';
@@ -645,6 +645,33 @@ world.spatialDirty = true;
 const dDefend16 = fallbackDecide(world, b0, { spec: specOf(b0), board: boardReal });
 eq('兜底: 己方指挥所挨打回防', dDefend16.action, 'guard');
 hq16.lastDamagedTimer = 0;
+
+// ==================== 17. 上帝命令本地解析（零 token、当帧执行） ====================
+const pCtx = { spec: specOf(b0), board: boardReal, frameCount: 1 };
+const pRetreat = parseGodCommand(world, b0, '撤退！', pCtx);
+ok('命令解析: 撤退口令命中', pRetreat.matched && pRetreat.decision.action === 'retreat', JSON.stringify(pRetreat));
+eq('命令解析: 命令决策带 fromCommand 标记', pRetreat.decision.fromCommand, true);
+eq('命令解析: 回防→guard', parseGodCommand(world, b0, '回防守家', pCtx).decision.action, 'guard');
+eq('命令解析: 集合→move', parseGodCommand(world, b0, '全员集合', pCtx).decision.action, 'move');
+const pAttack = parseGodCommand(world, b0, '全体进攻', pCtx);
+eq('命令解析: 总攻指向敌方指挥所', pAttack.decision.action === 'attack_move' && pAttack.decision.target.id === boardReal.enemyHq.id, true);
+eq('命令解析: 指名攻击敌方成员', parseGodCommand(world, b0, '打红1号', pCtx).decision.target.id, r0.id);
+const pAck = parseGodCommand(world, b0, '蓝2号 撤退', pCtx);
+eq('命令解析: 点名他人时只应声', pAck.matched && pAck.ackOnly, true);
+const pSup = parseGodCommand(world, b0, '掩护蓝2号', pCtx);
+ok('命令解析: 掩护队友→去支援', pSup.decision.action === 'move' && pSup.decision.intent.indexOf('蓝2号') >= 0, JSON.stringify(pSup));
+eq('命令解析: 停火→hold', parseGodCommand(world, b0, '全部停火', pCtx).decision.action, 'hold');
+eq('命令解析: 找掩体→cover', parseGodCommand(world, b0, '找掩体', pCtx).decision.action, 'cover');
+eq('命令解析: 模糊口令交还 LLM', parseGodCommand(world, b0, '绕后偷袭他们的补给线', pCtx).matched, false);
+
+// 命令当帧执行：解析出的撤退决策直接落到实体（不再等冷却/LLM 往返）
+resetMember(b0, flat.x, flat.y);
+am._applyDecision(am.agents.get(b0.memberKey), b0, world, 200, pRetreat.decision);
+ok('命令执行: 撤退命令当帧进入脱离状态', !!b0.fleeTo, JSON.stringify(b0.fleeTo));
+eq('命令执行: 赶路类命令挂 noAutoAcquire（防恋战）', b0.noAutoAcquire, true);
+// 攻击类命令不受 noAutoAcquire 约束（就是要打）
+am._applyDecision(am.agents.get(b0.memberKey), b0, world, 200, pAttack.decision);
+eq('命令执行: 进攻命令解除赶路标记并锁定敌方指挥所', b0.noAutoAcquire === false && !!b0.attackTarget, true);
 
 // ==================== 汇总 ====================
 console.log('\n通过 ' + passed + ' 项' + (failures.length ? '，失败 ' + failures.length + ' 项：' : '，全部通过 ✅'));

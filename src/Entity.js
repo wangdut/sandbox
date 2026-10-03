@@ -57,6 +57,8 @@ export class Entity {
     this.selected = false;
     this.attackTarget = null;
     this.attackMoveTarget = null;
+    // 赶路类命令（移动/集合/进掩体/占高地）途中禁止引擎自动接敌，防止"收到命令却恋战"
+    this.noAutoAcquire = false;
     this.guardPos = null;
     this.autoGuard = false;   // 出厂单位：抵达集结点后自动转入守卫状态
     // 中立高楼：aiIgnore = AI 永不主动选它为目标（只接受指挥官明令）；

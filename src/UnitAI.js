@@ -157,7 +157,11 @@ export function updateUnitAI(gameState, unit, frameCount) {
     return;
   }
   if (unit.attackMoveTarget && unit.damage > 0) {
-    var nbAM = pickAttackTarget(unit, gameState.getEnemiesInRange(unit, unit.range + 2));
+    // noAutoAcquire：赶路类命令（移动/集合/进掩体/占高地）途中不自动接敌，
+    // 防止"收到命令却恋战"；到位后 attackMoveTarget 会清空，恢复正常迎敌。
+    var nbAM = unit.noAutoAcquire
+      ? null
+      : pickAttackTarget(unit, gameState.getEnemiesInRange(unit, unit.range + 2));
     if (nbAM) {
       unit.attackTarget = nbAM;
       return;
@@ -175,20 +179,24 @@ export function updateUnitAI(gameState, unit, frameCount) {
   }
 
   if (unit.guardPos && unit.damage > 0) {
-    // 1) 射程内目标：原地开火，不移动
-    var gInRange = pickAttackTarget(unit, gameState.getEnemiesInRange(unit, unit.range));
-    if (gInRange) {
-      if (unit.fireCooldown <= 0 && unit.canAttack(gInRange)) {
-        unit.turretDir = Math.atan2(gInRange.getCenterY() - unit.getCenterY(),
-                                    gInRange.getCenterX() - unit.getCenterX());
-        performAttack(gameState, unit, gInRange);
-      }
-      return;
-    }
+    // 赶路去守卫点途中（noAutoAcquire）不停下恋战：先到岗，到位后才开火/有限追击
+    var walkingToGuard = unit.noAutoAcquire && unit.path.length > 0 && unit.pathIndex < unit.path.length;
     var gdx = unit.x - unit.guardPos.x, gdy = unit.y - unit.guardPos.y;
     var gd2 = gdx * gdx + gdy * gdy;
+    // 1) 射程内目标：原地开火，不移动
+    if (!walkingToGuard) {
+      var gInRange = pickAttackTarget(unit, gameState.getEnemiesInRange(unit, unit.range));
+      if (gInRange) {
+        if (unit.fireCooldown <= 0 && unit.canAttack(gInRange)) {
+          unit.turretDir = Math.atan2(gInRange.getCenterY() - unit.getCenterY(),
+                                      gInRange.getCenterX() - unit.getCenterX());
+          performAttack(gameState, unit, gInRange);
+        }
+        return;
+      }
+    }
     // 2) 射程外但在警戒范围内：有限追击，追出太远就放弃
-    var gNear = pickAttackTarget(unit, gameState.getEnemiesInRange(unit, unit.range + 3));
+    var gNear = walkingToGuard ? null : pickAttackTarget(unit, gameState.getEnemiesInRange(unit, unit.range + 3));
     if (gNear && gd2 < GUARD_CHASE_RANGE * GUARD_CHASE_RANGE) {
       unit.attackTarget = gNear;
       return;

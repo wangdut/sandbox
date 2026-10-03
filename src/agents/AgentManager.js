@@ -13,7 +13,7 @@ import { findHQ } from '../sandbox/scenario.js';
 import { session } from '../core/session.js';
 import { buildSystemPrompt, buildSnapshot } from './prompts.js';
 import { parseDecision } from './parser.js';
-import { fallbackDecide, quickCommandDecision } from './FallbackAI.js';
+import { fallbackDecide, quickCommandDecision, parseGodCommand } from './FallbackAI.js';
 import { isAIAutoTargetable } from './targeting.js';
 import { buildSquadBoard } from './squadBoard.js';
 import { canSee, INTEL_TTL_FRAMES } from './vision.js';
@@ -21,6 +21,8 @@ import { chatOnce } from './LLMClient.js';
 import { isAgentEnabled, resolveMemberAuth, isLLMReady } from './config.js';
 
 const MAX_INFLIGHT = 6;          // 同时在途的 LLM 请求上限（六名成员六把独立 Key，可全并行，不必排队）
+// 命令快车道：本地解析失败转 LLM 时，两次命令调用之间的最小间隔（帧）——只防连发刷屏，不拖命令
+const COMMAND_FASTLANE_FRAMES = 30;
 const EVENT_CAP = 8;
 const MSG_CAP = 4;
 const MAX_CONSECUTIVE_ERRORS = 3;
@@ -103,6 +105,9 @@ export class AgentManager {
         lastSay: '',
         currentIntent: '',
         currentOrderTargetId: 0,
+        // 决策序号：每次「发起 LLM 调用 / 本地执行命令」+1；旧响应晚到时不覆盖新行动
+        callSeq: 0,
+        lastCommandCallFrame: -99999,
         // 记忆
         events: [],
         allyMsgs: [],
@@ -161,8 +166,10 @@ export class AgentManager {
 
     this._observe(agent, member, gameState, frameCount);
 
-    // 自保反射（零 token）：残血 + 挨打 + 身处敌方火力覆盖 → 立刻脱离，不给 LLM 留空档
-    if (this._reflexWithdraw(agent, member, gameState, frameCount)) return;
+    // 自保反射（零 token）：残血 + 挨打 + 身处敌方火力覆盖 → 立刻脱离，不给 LLM 留空档。
+    // 例外：有上帝命令待执行时命令优先——玩家指挥权高于自保反射，否则命令会被"保命"吃掉。
+    const pendingCmd = this.commandBus ? this.commandBus.peekFor(agent.spec.key) : null;
+    if (!pendingCmd && this._reflexWithdraw(agent, member, gameState, frameCount)) return;
 
     const trigger = this._pickTrigger(agent, member, gameState, frameCount);
     if (!trigger) return;
@@ -175,6 +182,32 @@ export class AgentManager {
         frameCount - agent.lastCallFrame >= EMERGENCY_COOLDOWN_SEC * FPS) {
       cooldownOk = true;
       agent.emergencyCalls = (agent.emergencyCalls || 0) + 1;
+    }
+
+    if (trigger === 'command') {
+      // 命令快车道：先本地解析（零 token、当帧执行），解析不了才绕过常规决策冷却直接问 LLM。
+      // 本地解析是「最快速度执行」与「不恋战」的保证——撤退/回防等命令不再等冷却 + LLM 往返。
+      if (this._tryExecuteCommandLocal(agent, member, gameState, frameCount)) return;
+      if (frameCount - agent.lastCommandCallFrame < COMMAND_FASTLANE_FRAMES) return;
+      if (canLLM) {
+        if (!this._globalBudgetOk()) return;
+        this._callLLM(agent, member, gameState, frameCount, trigger);
+      } else {
+        // 无 LLM 且本地解析失败：消费命令按脚本 AI 行动并回应，避免命令石沉大海
+        if (this.commandBus) this.commandBus.takeFor(agent.spec.key);
+        agent.pendingCommand = null;
+        this._applyFallback(agent, member, gameState, frameCount, trigger, true);
+        this.hooks.onChat({
+          key: agent.spec.key,
+          name: agent.spec.name,
+          team: agent.spec.team,
+          teamName: TEAM_NAMES[agent.spec.team],
+          text: '（按既定战术行动）',
+          to: null,
+          at: Date.now(),
+        });
+      }
+      return;
     }
 
     if (canLLM) {
@@ -435,12 +468,17 @@ export class AgentManager {
     agent.inFlight = true;
     this.inFlight++;
     agent.lastCallFrame = frameCount;
+    if (trigger === 'command') agent.lastCommandCallFrame = frameCount;
+    // 本次调用的决策序号：响应晚到时若已有更新的决策（本地命令/更晚的调用），只收台词不覆盖行动
+    const mySeq = (agent.callSeq = (agent.callSeq || 0) + 1);
     this.callStamps.push(Date.now());
     this.totalCalls++;
     agent.calls++;
-    // 真正发起调用才消费命令：失败也会给出「通讯中断」的回应
+    // 真正发起调用才消费命令：失败也会给出「通讯中断」的回应；文本先留存供失败后本地解析兜底
+    let cmdText = null;
     if (trigger === 'command' && this.commandBus) {
-      this.commandBus.takeFor(agent.spec.key);
+      const taken = this.commandBus.takeFor(agent.spec.key);
+      cmdText = taken ? taken.text : null;
       agent.pendingCommand = null;
     }
 
@@ -454,6 +492,14 @@ export class AgentManager {
         agent.tokens += res.usage.total_tokens;
       }
       agent.consecutiveErrors = 0;
+      if (agent.callSeq !== mySeq) {
+        // 本调用在途时已有更新的决策（如本地命令当帧执行）：台词照常展示，行动不覆盖。
+        // 喊话冷却用当前帧判断（旧 frameCount 会低估间隔、多放行广播）
+        const nowFrame = self.memberSystem ? self.memberSystem.frameCount : frameCount;
+        self._handleChat(agent, member, gameState, nowFrame, parsed.decision);
+        self._clearMemory(agent, trigger);
+        return;
+      }
       agent.lastDecision = parsed.decision;
       agent.lastSay = parsed.decision.say;
       agent.currentIntent = parsed.decision.intent || '';
@@ -469,6 +515,17 @@ export class AgentManager {
       if (agent.consecutiveErrors >= MAX_CONSECUTIVE_ERRORS && !agent.degraded) {
         agent.degraded = true;
         self.hooks.onNotify(agent.spec.name + ' 连续调用失败，已降级为脚本 AI（' + msg.slice(0, 40) + '）', 'warn');
+      }
+      if (agent.callSeq !== mySeq) {
+        // 已有更新的决策接管，本次失败不再兜底（避免旧兜底覆盖新行动）
+        self._clearMemory(agent, trigger);
+        return;
+      }
+      // 命令失败先试本地解析兜底：让"撤退/回防"这类口令即使 LLM 挂了也能当帧执行
+      if (trigger === 'command' && cmdText &&
+          self._tryExecuteCommandLocal(agent, member, gameState, frameCount, cmdText)) {
+        self._clearMemory(agent, trigger);
+        return;
       }
       // 兜底：出错也要有动作，不能让成员站着不动
       self._applyFallback(agent, member, gameState, frameCount, trigger, true);
@@ -494,6 +551,46 @@ export class AgentManager {
     agent.events = [];
     if (trigger === 'chat') { agent.allyMsgs = []; agent.enemyMsgs = []; }
     if (trigger === 'command') agent.pendingCommand = null;
+  }
+
+  /**
+   * 命令快车道的本地解析：把上帝自由文本直接翻译成决策并当帧执行（零 token）。
+   * 覆盖不了的口令（太自由/太模糊）返回 false，由调用方转 LLM 快车道。
+   * @param overrideText 传文本则直接解析该文本（LLM 失败后的兜底），不再从命令总线取。
+   */
+  _tryExecuteCommandLocal(agent, member, gameState, frameCount, overrideText) {
+    const cmd = overrideText != null
+      ? { text: overrideText }
+      : (this.commandBus ? this.commandBus.peekFor(agent.spec.key) : null);
+    if (!cmd || !cmd.text) return false;
+    const parsed = parseGodCommand(gameState, member, cmd.text, {
+      spec: agent.spec,
+      board: this._boardFor(gameState, agent.spec.team),
+      frameCount: frameCount,
+    });
+    if (!parsed || !parsed.matched) return false;
+
+    // 消费命令并作废所有在途 LLM 调用：旧响应晚到后只收台词，不覆盖本次命令执行
+    if (overrideText == null && this.commandBus) this.commandBus.takeFor(agent.spec.key);
+    agent.pendingCommand = null;
+    agent.lastCommandCallFrame = frameCount;
+    agent.callSeq = (agent.callSeq || 0) + 1;
+
+    if (parsed.ackOnly) {
+      // 命令点的是别人：只应声，不改变自己行动
+      agent.currentIntent = '听候指挥';
+      this._clearMemory(agent, 'command');
+      this._handleChat(agent, member, gameState, frameCount, { say: parsed.say || '收到。', to: null });
+      return true;
+    }
+    const decision = parsed.decision;
+    agent.lastDecision = decision;
+    agent.lastSay = decision.say;
+    agent.currentIntent = decision.intent;
+    this._applyDecision(agent, member, gameState, frameCount, decision);
+    this._clearMemory(agent, 'command');
+    this._handleChat(agent, member, gameState, frameCount, decision);
+    return true;
   }
 
   _boardFor(gameState, team) {
@@ -565,6 +662,10 @@ export class AgentManager {
 
     const action = decision.action;
     const target = decision.target;
+    // 赶路类行动禁止途中自动接敌：否则"收到撤退/集合却恋战"会重演——
+    // 引擎（UnitAI）只在 attack_move 上自动索敌，这里把赶路标记写回实体，到位后恢复正常迎敌
+    member.noAutoAcquire = (action === 'move' || action === 'guard' || action === 'cover' ||
+                            action === 'highground' || action === 'retreat');
 
     // 2) 目标实体解析（id 非法则退化为兜底，避免站着不动）
     let targetEntity = null;
@@ -595,6 +696,11 @@ export class AgentManager {
     }
 
     if ((action === 'attack' || action === 'attack_move') && !targetEntity && !mountTarget && !(target && target.类型 === 'position')) {
+      // 上帝命令的执行不许"偷换目标"：目标失效就如实报告，而不是顺手接敌（否则又成恋战）
+      if (decision.fromCommand) {
+        this._noteBlocked(agent, '目标无效', frameCount);
+        return false;
+      }
       const board = this._boardFor(gameState, agent.spec.team);
       const fb = fallbackDecide(gameState, member, { spec: agent.spec, board: board });
       this._noteBlocked(agent, '目标无效', frameCount);
@@ -866,6 +972,7 @@ export class AgentManager {
         e.attackMoveTarget = null;
         e.guardPos = null;
         e.fleeTo = null;
+        e.noAutoAcquire = false;   // 显式攻击命令：解除赶路标记，恢复交战
         e.path = [];
         e.pathIndex = 0;
         applied++;
