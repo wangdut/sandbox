@@ -120,7 +120,7 @@ export class Entity {
     // 虚拟成员标记（沙盘）：受 LLM 驱动的英雄单位，可切换武器、阵亡后重生
     this.isMember = (def && def.member) || false;
     this.memberKey = null;   // 成员唯一标识（如 'blue_1'），重生时用于复原
-    this.memberName = null;  // 显示名（雷霆/寒鸦/烈焰/夜枭）
+    this.memberName = null;  // 显示名（蓝1号/蓝2号/红1号/红2号…）
     this.weaponMode = 'mg';  // 当前武器档案键（见 sandbox/memberDefs.js）
     this.avoidDanger = false; // 寻路时是否规避敌方防御射程（成员开启：让"绕后"真的绕）
     this.mountType = null;   // 成员当前乘驾的载具类型（tank/apc/gunship/bomber）；null=步行

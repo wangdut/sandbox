@@ -100,7 +100,7 @@ ok('武器: 火箭筒具备反装甲', fakeUnit.antiArmor === true);
 function makeGameState(opts) {
   const enemyHq = { id: 9, name: '指挥所', team: TEAM_ENEMY, isBuilding: true, size: 3, x: 32, y: 7, hp: 1800, maxHp: 1800, dead: false, getCenterX: () => 1072, getCenterY: () => 272 };
   const ownHq = { id: 1, name: '指挥所', team: TEAM_PLAYER, isBuilding: true, size: 3, x: 5, y: 30, hp: 1800, maxHp: 1800, dead: false, getCenterX: () => 208, getCenterY: () => 1008 };
-  const enemy = { id: 20, name: '烈焰', team: TEAM_ENEMY, isMember: true, type2: 'infantry', x: 10, y: 34, hp: 300, maxHp: 380, dead: false, getCenterX: () => 336, getCenterY: () => 1104 };
+  const enemy = { id: 20, name: '红1号', team: TEAM_ENEMY, isMember: true, type2: 'infantry', x: 10, y: 34, hp: 300, maxHp: 380, dead: false, getCenterX: () => 336, getCenterY: () => 1104 };
   const list = opts.withEnemyInRange ? [enemyHq, ownHq, enemy] : [enemyHq, ownHq];
   return {
     entities: list,
@@ -136,7 +136,7 @@ const dCover = fallbackDecide(withCover({}), { ...memberLow, hp: 380 }, { spec: 
 ok('楼房: 兜底 AI 不主动攻击中立高楼（' + dCover.action + '→' + dCover.target.id + '）', dCover.target.id !== highrise.id);
 
 const coverMember = { ...memberLow, hp: 380, maxHp: 380, x: 5, y: 34, weaponMode: 'mg', fireCooldown: 0,
-  memberName: '雷霆', type2: 'infantry', getCenterX: () => 176, getCenterY: () => 1104 };
+  memberName: '蓝1号', type2: 'infantry', getCenterX: () => 176, getCenterY: () => 1104 };
 const coverSnap = JSON.parse(buildSnapshot(withCover({}), coverMember, {
   spec: MEMBERS[0], board, lastCommand: null, events: [], allyMsgs: [], enemyMsgs: [],
 }));
@@ -151,7 +151,7 @@ ok('提示词: 含 JSON 字段说明', sys.includes('台词') && sys.includes('a
 ok('提示词: 明确要求纯 JSON', sys.includes('只输出一个 JSON'));
 ok('提示词: 人类阵营提及上帝命令', buildSystemPrompt(MEMBERS[0]).includes('上帝'));
 ok('提示词: 电脑阵营为自主模式', buildSystemPrompt(MEMBERS[2]).includes('自主'));
-const snap = buildSnapshot(makeGameState({ withEnemyInRange: true }), { ...memberLow, hp: 380, maxHp: 380, weaponMode: 'mg', fireCooldown: 0, memberName: '雷霆', type2: 'infantry', x: 5, y: 34, getCenterX: () => 176, getCenterY: () => 1104 }, {
+const snap = buildSnapshot(makeGameState({ withEnemyInRange: true }), { ...memberLow, hp: 380, maxHp: 380, weaponMode: 'mg', fireCooldown: 0, memberName: '蓝1号', type2: 'infantry', x: 5, y: 34, getCenterX: () => 176, getCenterY: () => 1104 }, {
   spec: MEMBERS[0], board, lastCommand: { text: '进攻', at: Date.now() },
   events: ['收到上帝命令：进攻'], allyMsgs: [], enemyMsgs: [],
 });
@@ -197,7 +197,7 @@ const red1 = am.agents.get('red_1');
 const gs = makeFakeGameState();
 const fakeMemberEntity = { isMember: true, getCenterX: () => 0, getCenterY: () => 0 };
 
-am._handleChat(blue1, fakeMemberEntity, gs, 1000, { say: '雷霆掩护我', to: '队友' });
+am._handleChat(blue1, fakeMemberEntity, gs, 1000, { say: '蓝1号掩护我', to: '队友' });
 eq('隔离: 队友喊话进本方队友邮箱', blue2.allyMsgs.length, 1);
 eq('隔离: 队友喊话不进敌方邮箱', red1.enemyMsgs.length, 0);
 eq('隔离: 标记为仅本方可见', chatSeen[chatSeen.length - 1].audience, 'blue');
@@ -510,13 +510,45 @@ world.spatialDirty = true;
 const squadSnap = JSON.parse(buildSnapshot(world, b2, {
   spec: specOf(b2), board: boardReal, events: [], allyMsgs: [], enemyMsgs: [], lastCommand: null, currentAction: null,
 }));
-ok('协同: 快照出现集火提示', /人正在打「烈焰」/.test(squadSnap['协同'].集火 || ''), squadSnap['协同'].集火);
+ok('协同: 快照出现集火提示', /人正在打「红1号」/.test(squadSnap['协同'].集火 || ''), squadSnap['协同'].集火);
 ok('协同: 队友条目带上在打谁', (squadSnap['队友'] || []).some(function (a) { return a['正在打'] === r0.memberName; }));
 ok('协同: 分工栏写明角色与站位纪律', (squadSnap['协同'].分工 || '').indexOf(ROLE_NAMES[specOf(b2).role]) === 0);
 ok('协同: 系统提示要求配合', buildSystemPrompt(MEMBERS[0]).indexOf('【协同】') >= 0);
 const briefEmpty = squadBrief({ role: 'recon', mates: [], focus: null, wounded: null, highGround: null, cover: null });
 eq('协同: 无态势时只留分工栏', Object.keys(briefEmpty).length, 1);
 eq('协同: 战术格按地图只扫一次', reliefTiles(world.map) === reliefTiles(world.map), true);
+
+// ==================== 15. 撤退与自保反射：思考与行动一致 ====================
+resetMember(b0, 20, 20);
+const retreatD = parseDecision('{"台词":"打不过，撤！","动作":"retreat"}');
+eq('撤退: retreat 动作可解析', retreatD.ok, true);
+am._applyDecision(am.agents.get(b0.memberKey), b0, world, 200, retreatD.decision);
+ok('撤退: 进入脱离状态（fleeTo 指向指挥所）', !!b0.fleeTo, JSON.stringify(b0.fleeTo));
+eq('撤退: 不再挂守卫位（守卫会原地开火恋战）', b0.guardPos, null);
+eq('撤退: 清空攻击目标', b0.attackTarget, null);
+ok('撤退: 真的排出了撤退路径', b0.path && b0.path.length > 0);
+
+// 新指令覆盖脱离状态：大脑改口进攻时，成员必须停撤参战
+resetMember(r0, 30, 20); r0.hp = r0.maxHp; r0.dead = false;
+am._applyDecision(am.agents.get(b0.memberKey), b0, world, 200, { action: 'attack', target: { 类型: 'unit', id: r0.id }, say: '', intent: '' });
+eq('撤退: 新攻击指令解除脱离状态', b0.fleeTo, null);
+ok('撤退: 新指令重新锁定目标', !!b0.attackTarget);
+
+// 自保反射也走同一条"纯脱离"通路，而不是挂着目标边走边还手
+resetMember(b0, 20, 20);
+b0.hp = Math.floor(b0.maxHp * 0.3);
+b0.lastDamagedTimer = 10;
+const dangerGrid = new Float32Array(MAP_WIDTH * MAP_HEIGHT);
+dangerGrid[20 * MAP_WIDTH + 20] = 0.9;
+world.danger = [null, null];
+world.danger[TEAM_PLAYER] = dangerGrid;
+const reflexAgent = am.agents.get(b0.memberKey);
+reflexAgent.lastReflexFrame = -99999;
+const withdrew = am._reflexWithdraw(reflexAgent, b0, world, 300);
+ok('反射: 自保反射触发', withdrew);
+ok('反射: 反射同样进入脱离状态', !!b0.fleeTo, JSON.stringify(b0.fleeTo));
+eq('反射: 清空攻击/守卫目标', b0.attackTarget === null && b0.guardPos === null, true);
+b0.fleeTo = null;
 
 // ==================== 汇总 ====================
 console.log('\n通过 ' + passed + ' 项' + (failures.length ? '，失败 ' + failures.length + ' 项：' : '，全部通过 ✅'));

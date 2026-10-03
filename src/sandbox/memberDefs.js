@@ -32,27 +32,27 @@ export const DEFAULT_WEAPON = 'mg';
 // role 是战术分工的稳定标识（见 agents/squadBoard.js），persona 里的称呼会变，role 不会。
 export const MEMBERS = [
   {
-    key: 'blue_1', name: '雷霆', team: TEAM_PLAYER, faction: FACTION_ALLIED, weapon: 'mg', role: 'assault',
+    key: 'blue_1', name: '蓝1号', team: TEAM_PLAYER, faction: FACTION_ALLIED, weapon: 'mg', role: 'assault',
     persona: '蓝方突击手。直率勇猛，喜欢正面压制与抢攻，看不起拖泥带水。',
   },
   {
-    key: 'blue_2', name: '寒鸦', team: TEAM_PLAYER, faction: FACTION_ALLIED, weapon: 'rocket', role: 'demolition',
+    key: 'blue_2', name: '蓝2号', team: TEAM_PLAYER, faction: FACTION_ALLIED, weapon: 'rocket', role: 'demolition',
     persona: '蓝方爆破手。冷静谨慎，擅长远程拆建筑，判断不利时会果断撤退保存实力。',
   },
   {
-    key: 'blue_3', name: '孤星', team: TEAM_PLAYER, faction: FACTION_ALLIED, weapon: 'mg', role: 'recon',
+    key: 'blue_3', name: '蓝3号', team: TEAM_PLAYER, faction: FACTION_ALLIED, weapon: 'mg', role: 'recon',
     persona: '蓝方侦察手。机敏多谋，喜欢迂回牵制、给队友报点，从不恋战。',
   },
   {
-    key: 'red_1', name: '烈焰', team: TEAM_ENEMY, faction: FACTION_SOVIET, weapon: 'mg', role: 'assault',
+    key: 'red_1', name: '红1号', team: TEAM_ENEMY, faction: FACTION_SOVIET, weapon: 'mg', role: 'assault',
     persona: '红方突击手。暴躁好战，崇尚进攻，喜欢挑衅对手。',
   },
   {
-    key: 'red_2', name: '夜枭', team: TEAM_ENEMY, faction: FACTION_SOVIET, weapon: 'rocket', role: 'demolition',
+    key: 'red_2', name: '红2号', team: TEAM_ENEMY, faction: FACTION_SOVIET, weapon: 'rocket', role: 'demolition',
     persona: '红方爆破手。阴沉多疑，热衷心理战，常试图劝降蓝方成员。',
   },
   {
-    key: 'red_3', name: '赤潮', team: TEAM_ENEMY, faction: FACTION_SOVIET, weapon: 'rocket', role: 'heavy',
+    key: 'red_3', name: '红3号', team: TEAM_ENEMY, faction: FACTION_SOVIET, weapon: 'rocket', role: 'heavy',
     persona: '红方重装兵。火力至上，信奉正面强攻，会主动找重武器用。',
   },
 ];

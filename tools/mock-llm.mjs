@@ -18,7 +18,7 @@
 //   · 协同栏出现「求援」    → attack_move 靠向残血队友（支援）
 //   · 空闲且按分工          → 侦察手 highground、其余 cover（战术位由引擎挑格）
 //   · 否则                  → attack_move 敌方指挥所（火箭筒）
-//   台词会带上触发的命令/战况；夜枭会尝试对敌方喊话，雷霆会呼叫队友配合（长台词验证 40 字显示）。
+//   台词会带上触发的命令/战况；红2号会尝试对敌方喊话，蓝1号会呼叫队友配合（长台词验证 40 字显示）。
 
 import http from 'node:http';
 
@@ -209,12 +209,12 @@ function decide(snap) {
   // 空闲：尝试社交（覆盖阵营内协作与跨阵营喊话两条链路）
   let to = null;
   let line = null;
-  if (name === '夜枭' && !heard) {
+  if (name === '红2号' && !heard) {
     to = '敌方';
     line = '蓝方，投降吧，你们守不住的。';
-  } else if (name === '雷霆' && allies.length > 0) {
+  } else if (name === '蓝1号' && allies.length > 0) {
     to = '队友';
-    line = '寒鸦，我从正面压，你绕后面！';
+    line = '蓝2号，我从正面压，你绕后面！';
   }
 
   return {
