@@ -673,6 +673,36 @@ eq('命令执行: 赶路类命令挂 noAutoAcquire（防恋战）', b0.noAutoAcq
 am._applyDecision(am.agents.get(b0.memberKey), b0, world, 200, pAttack.decision);
 eq('命令执行: 进攻命令解除赶路标记并锁定敌方指挥所', b0.noAutoAcquire === false && !!b0.attackTarget, true);
 
+// ==================== 18. 命令点名：只有被点名的成员执行 ====================
+// 补一辆敌方载具，保证"打敌方载具"命令有明确目标
+world.entities.push({ id: 9101, name: '主战坦克', memberName: '主战坦克', team: TEAM_ENEMY, isBuilding: false, type2: 'vehicle', mountType: 'tank', x: 30, y: 12, dead: false });
+const vehicleIds = world.entities.filter(function (e) {
+  return !e.dead && e.team === TEAM_ENEMY && (e.type2 === 'vehicle' || e.mountType === 'tank' || e.mountType === 'apc');
+}).map(function (e) { return e.id; });
+eq('点名: 简写"2号"→他人只应声', parseGodCommand(world, b0, '2号 去攻击敌方载具', pCtx).ackOnly, true);
+eq('点名: 中文数字"二号 撤退"→他人只应声', parseGodCommand(world, b0, '二号 撤退', pCtx).ackOnly, true);
+const pSelf = parseGodCommand(world, b1, '2号 去攻击敌方载具', Object.assign({}, pCtx, { spec: specOf(b1) }));
+ok('点名: 被点名者执行攻击载具命令', pSelf.matched && !pSelf.ackOnly && pSelf.decision.action === 'attack_move', JSON.stringify(pSelf));
+ok('点名: 攻击目标锁定敌方载具', vehicleIds.indexOf(pSelf.decision.target.id) >= 0, JSON.stringify(pSelf.decision.target));
+eq('点名: 拆载具用火箭筒', pSelf.decision.weapon, 'rocket');
+const pEnemyName = parseGodCommand(world, b0, '红2号 撤退', pCtx);
+ok('点名: "红2号"不算点蓝队队友', pEnemyName.matched && !pEnemyName.ackOnly && pEnemyName.decision.action === 'retreat', JSON.stringify(pEnemyName));
+eq('点名: 无点名"全员进攻"→全员执行', parseGodCommand(world, b0, '全员进攻', pCtx).decision.action, 'attack_move');
+
+// AgentManager 层：命令分发后只有被点名者行动，其余只应声
+am.init({ config: DEFAULT_CONFIG, memberSystem: fakeMemberSystem, commandBus: bus, notify: function () {}, onChat: function () {} });
+bus.sendCommand({ team: TEAM_PLAYER, type: 'text', text: '2号 去攻击敌方载具' });
+blueTeam.forEach(function (e, i) { resetMember(e, flat.x + i, flat.y); e.noAutoAcquire = false; e.fleeTo = null; });
+const ag1 = am.agents.get(b0.memberKey), ag2 = am.agents.get(b1.memberKey), ag3 = am.agents.get(b2.memberKey);
+const okAll = am._tryExecuteCommandLocal(ag1, b0, world, 300, null) &&
+             am._tryExecuteCommandLocal(ag2, b1, world, 300, null) &&
+             am._tryExecuteCommandLocal(ag3, b2, world, 300, null);
+ok('点名: 三人各自消费命令', okAll, '');
+ok('点名: 蓝1/3号只应声不行动', !b0.attackTarget && !b0.attackMoveTarget && !b0.fleeTo && !b2.attackTarget && !b2.attackMoveTarget, '');
+ok('点名: 蓝2号立即锁定敌方载具', vehicleIds.indexOf(ag2.currentOrderTargetId) >= 0 || (b1.attackTarget && vehicleIds.indexOf(b1.attackTarget.id) >= 0),
+  JSON.stringify({ order: ag2.currentOrderTargetId, at: b1.attackTarget && b1.attackTarget.id }));
+eq('点名: 蓝2号命令行动进行中（供完成后续接）', ag2.commandActive, true);
+
 // ==================== 汇总 ====================
 console.log('\n通过 ' + passed + ' 项' + (failures.length ? '，失败 ' + failures.length + ' 项：' : '，全部通过 ✅'));
 failures.forEach((f) => console.log('  ✗ ' + f));

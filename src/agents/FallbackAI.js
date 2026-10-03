@@ -387,6 +387,24 @@ const CMD_RE = {
   support: /支援|掩护|帮助|跟(我|上|着)|救我/,
 };
 
+// 队友点名：支持全名（"蓝2号"）与简写（"2号"/"二号"）；"红2号"点的是敌方，不算点队友
+const CN_NUM = { 一: '1', 二: '2', 三: '3', 四: '4', 五: '5', 六: '6', 七: '7', 八: '8', 九: '9' };
+function findNamedMate(mates, t) {
+  const full = mates.find(function (e) { return e.memberName && t.indexOf(e.memberName) >= 0; });
+  if (full) return full;
+  if (!mates.length) return null;
+  const enemyColor = mates[0].memberName && mates[0].memberName.charAt(0) === '蓝' ? '红' : '蓝';
+  const re = /([一二三四五六七八九1-9])\s*号/g;
+  let m;
+  while ((m = re.exec(t))) {
+    if (m.index > 0 && t.charAt(m.index - 1) === enemyColor) continue;  // "红2号"是敌方编号
+    const num = /^\d+$/.test(m[1]) ? m[1] : CN_NUM[m[1]];
+    const hit = mates.find(function (e) { return e.memberName && e.memberName.indexOf(num + '号') >= 0; });
+    if (hit) return hit;
+  }
+  return null;
+}
+
 /** 按命令文本在敌方实体里找指名目标（最长名优先："打敌方指挥所"不会误配到别的楼） */
 function findNamedEnemy(gameState, member, text) {
   const hits = [];
@@ -437,7 +455,7 @@ export function parseGodCommand(gameState, member, text, ctx) {
   gameState.entities.forEach(function (e) {
     if (e.isMember && !e.dead && e.team === member.team && e !== member) mates.push(e);
   });
-  const mateNamed = mates.find(function (e) { return e.memberName && t.indexOf(e.memberName) >= 0; });
+  const mateNamed = findNamedMate(mates, t);
 
   // 1) "掩护蓝2号"类：听者去支援被点名的队友（不是被点名者自己去执行）
   if (CMD_RE.support.test(t) && mateNamed) {

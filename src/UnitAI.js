@@ -36,6 +36,17 @@ export function updateUnitAI(gameState, unit, frameCount) {
       return;
     }
   }
+  // 赶路类命令（noAutoAcquire）行动完成即恢复迎敌：否则"集合/回防/找掩体"到位后
+  // 成员一直挂着赶路标记，引擎不敢自动接敌，只能站桩发呆
+  if (unit.noAutoAcquire && !unit.fleeTo && !unit.attackMoveTarget) {
+    var pathDone = unit.path.length === 0 || unit.pathIndex >= unit.path.length;
+    var guardDone = false;
+    if (unit.guardPos) {
+      var gx0 = unit.x - unit.guardPos.x, gy0 = unit.y - unit.guardPos.y;
+      guardDone = gx0 * gx0 + gy0 * gy0 <= 4;
+    }
+    if (pathDone || guardDone) unit.noAutoAcquire = false;
+  }
   // 撤退/脱离：大脑决定脱离战斗后只赶路，不恋战、不还手、不追出射程。
   // 否则"嘴上说撤回、脚下原地开火"——守卫判定与自动索敌都会把撤退重新拖回战斗。
   if (unit.fleeTo) {
@@ -43,6 +54,7 @@ export function updateUnitAI(gameState, unit, frameCount) {
     if (fdx * fdx + fdy * fdy < 4) {          // 已到指挥所/安全点附近
       unit.fleeTo = null;
       unit.path = []; unit.pathIndex = 0;
+      unit.noAutoAcquire = false;             // 撤离到位：恢复迎敌，回血判断交给大脑
       return;
     }
     if (unit.path.length === 0 || unit.pathIndex >= unit.path.length || unit.pathRecalcTimer <= 0) {
@@ -167,7 +179,10 @@ export function updateUnitAI(gameState, unit, frameCount) {
       return;
     }
     var amdx = unit.x - unit.attackMoveTarget.x, amdy = unit.y - unit.attackMoveTarget.y;
-    if (amdx * amdx + amdy * amdy < 4) unit.attackMoveTarget = null;
+    if (amdx * amdx + amdy * amdy < 4) {
+      unit.attackMoveTarget = null;
+      unit.noAutoAcquire = false;   // 到位：找掩体/占高地/进攻行动完成，恢复自动迎敌
+    }
   }
   // 出厂单位走完到集结点的路径后，就地转入守卫（红警2 行为）。
   // 注意要同时覆盖「路径为空」：读档时 path 会被清空（path 是瞬时状态不入档），
@@ -233,15 +248,22 @@ export function updateUnitAI(gameState, unit, frameCount) {
     }
   }
   // 红警2 行为：射程内自动开火，无需下达任何攻击命令。
-  // 原先玩家单位被限制成「只有停下（path 为空）才开火」，移动途中一路挨打却不还手
+  // 电脑阵营会自动追出射程；上帝玩家用鼠标指挥的步兵不追（保护玩家下达的移动命令）。
+  // AI 成员例外：它们的大脑决策有冷却空档，行动完成后要靠引擎补位——
+  // 空闲态（无赶路/守卫/进攻移动/撤退）自动接敌，否则执行完命令就站桩发呆。
+  var memberIdle = unit.isMember && !unit.noAutoAcquire && !unit.fleeTo && !unit.attackMoveTarget &&
+    !unit.guardPos && (unit.path.length === 0 || unit.pathIndex >= unit.path.length);
   if (!unit.attackTarget && unit.damage > 0 && unit.fireCooldown <= 0) {
     var cl2 = pickAttackTarget(unit, gameState.getEnemiesInRange(unit, unit.range + 1));
     if (cl2) {
       var cdx = (cl2.x + (cl2.isBuilding ? cl2.size / 2 : 0.5)) - (unit.x + 0.5),
           cdy = (cl2.y + (cl2.isBuilding ? cl2.size / 2 : 0.5)) - (unit.y + 0.5);
-      if (cdx * cdx + cdy * cdy <= unit.range * unit.range) performAttack(gameState, unit, cl2);
-      // 只有电脑阵营会自动追出射程；上帝玩家的单位不擅自脱离玩家下达的移动命令
-      else if (unit.team !== gameState.humanTeam) unit.attackTarget = cl2;
+      if (cdx * cdx + cdy * cdy <= unit.range * unit.range) {
+        // 赶路中（noAutoAcquire）连枪都不开：命令期间零干扰
+        if (!unit.noAutoAcquire) performAttack(gameState, unit, cl2);
+      } else if (unit.team !== gameState.humanTeam || memberIdle) {
+        unit.attackTarget = cl2;
+      }
     }
   }
   if (unit.team !== gameState.humanTeam && unit.lastDamagedBy && !unit.lastDamagedBy.dead && unit.lastDamagedTimer > 0 && !unit.attackTarget) {

@@ -37,6 +37,10 @@ const REFLEX_DANGER_MIN = 0.4;
 
 const TRIGGER_RANK = { command: 0, hurt: 1, lowhp: 2, targetdown: 3, contact: 4, chat: 5, idle: 6 };
 
+// 上帝命令执行完毕后的自主续接窗口：命令行动一结束，若 LLM 冷却还没到，
+// 先由脚本兜底续接下一仗（零 token），成员不会"执行完命令就站桩发呆"
+const COMMAND_DONE_WINDOW_FRAMES = 15 * FPS;
+
 function tileCenter(e) {
   return {
     x: Math.floor(e.x + (e.isBuilding ? e.size / 2 : 0.5)),
@@ -120,6 +124,10 @@ export class AgentManager {
         lowHpFlag: false,
         pendingCommand: null,
         commandSeen: 0,
+        // 命令生命周期：commandActive=命令行动进行中，行动一结束记录 commandDoneFrame，
+        // 供调度层在 LLM 冷却空档用脚本续接下一仗（执行完命令要有自主性）
+        commandActive: false,
+        commandDoneFrame: -99999,
         // 统计
         tokens: 0,
         calls: 0,
@@ -213,7 +221,18 @@ export class AgentManager {
     if (canLLM) {
       // 有 LLM：排不上队（冷却/并发/限流）就等下一帧，绝不用脚本兜底抢答——
       // 否则付费拿到的战术会被脚本决策覆盖，还会刷屏
-      if (!cooldownOk || agent.inFlight || this.inFlight >= MAX_INFLIGHT) return;
+      if (!cooldownOk) {
+        // 唯一例外：上帝命令刚执行完、冷却还没到——先由脚本续接下一仗（零 token），
+        // 让成员"执行完命令后仍有自主性"；只续接一次，冷却一到 LLM 照常接管
+        if ((trigger === 'idle' || trigger === 'targetdown' || trigger === 'contact') &&
+            frameCount - (agent.commandDoneFrame || -99999) <= COMMAND_DONE_WINDOW_FRAMES &&
+            !agent.inFlight && this.inFlight < MAX_INFLIGHT) {
+          agent.commandDoneFrame = -99999;
+          this._applyFallback(agent, member, gameState, frameCount, trigger, true);
+        }
+        return;
+      }
+      if (agent.inFlight || this.inFlight >= MAX_INFLIGHT) return;
       if (!this._globalBudgetOk()) return;
       this._callLLM(agent, member, gameState, frameCount, trigger);
       return;
@@ -390,6 +409,15 @@ export class AgentManager {
     if (agent.events.length > EVENT_CAP) agent.events = agent.events.slice(-EVENT_CAP);
     if (agent.allyMsgs.length > MSG_CAP) agent.allyMsgs = agent.allyMsgs.slice(-MSG_CAP);
     if (agent.enemyMsgs.length > MSG_CAP) agent.enemyMsgs = agent.enemyMsgs.slice(-MSG_CAP);
+
+    // 上帝命令执行完毕检测：命令行动一结束（不再有任何进行中的动作）就标记完成，
+    // 供调度层在 LLM 冷却空档用脚本续接下一仗（执行完命令要有自主性，不能站桩）
+    if (agent.commandActive && !member.boardTarget && !member.fleeTo && !member.attackTarget &&
+        !member.attackMoveTarget && !member.guardPos &&
+        !(member.path && member.path.length > 0 && member.pathIndex < member.path.length)) {
+      agent.commandActive = false;
+      agent.commandDoneFrame = frameCount;
+    }
   }
 
   /** 选出一个触发原因（优先级最高者） */
@@ -587,6 +615,9 @@ export class AgentManager {
     agent.lastDecision = decision;
     agent.lastSay = decision.say;
     agent.currentIntent = decision.intent;
+    // 命令开始执行：记下"命令进行中"，行动结束后调度层会给一次脚本自主续接
+    agent.commandActive = true;
+    agent.commandDoneFrame = -99999;
     this._applyDecision(agent, member, gameState, frameCount, decision);
     this._clearMemory(agent, 'command');
     this._handleChat(agent, member, gameState, frameCount, decision);
