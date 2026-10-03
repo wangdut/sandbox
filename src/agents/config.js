@@ -107,7 +107,13 @@ export function resolveMemberAuth(cfg, key) {
   };
 }
 
-/** 是否已配置到可以真正调用 LLM */
+/** 是否已配置到可以真正调用 LLM：总 Key 或任一成员独立 Key 非空都算就绪 */
 export function isLLMReady(cfg) {
-  return !!((cfg.apiKey || '').trim() && (cfg.model || '').trim() && (cfg.baseUrl || '').trim());
+  if (!(cfg.model || '').trim() || !(cfg.baseUrl || '').trim()) return false;
+  if ((cfg.apiKey || '').trim()) return true;
+  var keys = cfg.memberApiKeys;
+  if (keys) {
+    for (var k in keys) if ((keys[k] || '').trim()) return true;
+  }
+  return false;
 }
