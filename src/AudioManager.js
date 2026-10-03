@@ -10,8 +10,24 @@ export class AudioManager {
   getCtx() {
     if (!this.audioCtx) {
       try { this.audioCtx = new (window.AudioContext || window.webkitAudioContext)(); } catch(e) {}
+      this._attachUnlock();
     }
     return this.audioCtx;
+  }
+
+  // 浏览器自动播放策略：AudioContext 初始为 suspended，必须有用户手势才能出声，
+  // 否则射击/爆炸全部静默。首次点击或按键时解锁一次即可。
+  _attachUnlock() {
+    if (this._unlockAttached || typeof document === 'undefined') return;
+    this._unlockAttached = true;
+    var self = this;
+    var unlock = function () {
+      var ac = self.audioCtx;
+      if (ac && ac.state === 'suspended') { try { ac.resume(); } catch (e) {} }
+    };
+    ['pointerdown', 'keydown', 'touchstart'].forEach(function (ev) {
+      document.addEventListener(ev, unlock, { passive: true });
+    });
   }
 
   playSound(freq, type, dur, vol, slide) {
