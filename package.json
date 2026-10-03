@@ -3,7 +3,7 @@
   "version": "0.3.0",
   "private": true,
   "type": "module",
-  "description": "虚拟沙盘：红警风 2.5D 即时战术，4 名 DeepSeek 驱动的虚拟成员",
+  "description": "虚拟沙盘：2.5D 即时战术，4 名 DeepSeek 驱动的虚拟成员",
   "scripts": {
     "start": "node serve.mjs",
     "mock": "node tools/mock-llm.mjs",
