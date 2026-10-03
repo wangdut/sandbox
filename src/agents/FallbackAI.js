@@ -371,6 +371,7 @@ const CMD_LINES = {
   hold: ['收到，停！', '明白，原地待命。', '好，停火。'],
   attack: ['收到，进攻！', '明白，上！', '好，打！'],
   support: ['收到，来支援！', '明白，这就去！', '好，掩护你！'],
+  coord: ['收到，前往该坐标！', '明白，向坐标点移动！', '好，马上过去！'],
 };
 
 // 口令关键词（两字起步，避免单字误伤："进攻"里含"攻"，但"守"不能单用）
@@ -387,7 +388,30 @@ const CMD_RE = {
   support: /支援|掩护|帮助|跟(我|上|着)|救我/,
 };
 
-// 队友点名：支持全名（"蓝2号"）与简写（"2号"/"二号"）；"红2号"点的是敌方，不算点队友
+/** 坐标合法性：0..MAP_WIDTH-1 / 0..MAP_HEIGHT-1 之内才认，越界当没报坐标 */
+function makeCoord(x, y) {
+  if (x < 0 || x >= MAP_WIDTH || y < 0 || y >= MAP_HEIGHT) return null;
+  return { x: x, y: y };
+}
+
+/**
+ * 命令文本 → 格子坐标：支持 "(32,20)" / "32,20" / "x32 y20" / "32 20"。
+ * 逗号与空格形式都要求前后位非数字，避免"血120 30"这类文本误配成坐标。
+ */
+function extractCoord(t) {
+  const norm = t.replace(/[（]/g, '(').replace(/[）]/g, ')').replace(/[，]/g, ',');
+  let m = /[(（]\s*(\d{1,2})\s*,\s*(\d{1,2})\s*[)）]/.exec(t);
+  if (m) return makeCoord(+m[1], +m[2]);
+  m = /[xX]\s*(\d{1,2})\s*[yY]\s*(\d{1,2})/.exec(t);
+  if (m) return makeCoord(+m[1], +m[2]);
+  m = /(?:^|[^0-9])(\d{1,2})\s*,\s*(\d{1,2})(?=$|[^0-9])/.exec(norm);
+  if (m) return makeCoord(+m[1], +m[2]);
+  m = /(?:^|[^0-9])(\d{1,2})\s+(\d{1,2})(?=$|[^0-9])/.exec(t);
+  if (m) return makeCoord(+m[1], +m[2]);
+  return null;
+}
+
+/** 队友点名：支持全名（"蓝2号"）与简写（"2号"/"二号"）；"红2号"点的是敌方，不算点队友 */
 const CN_NUM = { 一: '1', 二: '2', 三: '3', 四: '4', 五: '5', 六: '6', 七: '7', 八: '8', 九: '9' };
 function findNamedMate(mates, t) {
   const full = mates.find(function (e) { return e.memberName && t.indexOf(e.memberName) >= 0; });
@@ -456,6 +480,8 @@ export function parseGodCommand(gameState, member, text, ctx) {
     if (e.isMember && !e.dead && e.team === member.team && e !== member) mates.push(e);
   });
   const mateNamed = findNamedMate(mates, t);
+  // 上帝报点坐标："去(32,20)" / "32,20 攻击" 等（position 目标不依赖视野，看不到也能走）
+  const coord = extractCoord(t);
 
   // 1) "掩护蓝2号"类：听者去支援被点名的队友（不是被点名者自己去执行）
   if (CMD_RE.support.test(t) && mateNamed) {
@@ -469,21 +495,23 @@ export function parseGodCommand(gameState, member, text, ctx) {
     return { matched: true, ackOnly: true, say: pick(CMD_ACK_LINES, seed) };
   }
 
-  // 3) 撤退/脱离：纯赶路回指挥所（fleeTo 通路，不恋战不还手）
+  // 3) 撤退/脱离：纯赶路回指挥所（fleeTo 通路，不恋战不还手）；报坐标则撤到坐标
   if (CMD_RE.retreat.test(t)) {
-    return cmdDecision(pick(CMD_LINES.retreat, seed), 'retreat', { 类型: 'position', x: ownCenter.x, y: ownCenter.y },
-      'mg', '执行命令：撤退');
+    const rx = coord ? coord.x : ownCenter.x, ry = coord ? coord.y : ownCenter.y;
+    return cmdDecision(pick(CMD_LINES.retreat, seed), 'retreat', { 类型: 'position', x: rx, y: ry },
+      'mg', '执行命令：撤退' + (coord ? '到(' + rx + ',' + ry + ')' : ''));
   }
-  // 4) 回防/守家
+  // 4) 回防/守家（报坐标则守那个位置）
   if (CMD_RE.guard.test(t)) {
-    return cmdDecision(pick(CMD_LINES.guard, seed), 'guard', { 类型: 'position', x: ownCenter.x, y: ownCenter.y },
-      'mg', '执行命令：回防');
+    const gx = coord ? coord.x : ownCenter.x, gy = coord ? coord.y : ownCenter.y;
+    return cmdDecision(pick(CMD_LINES.guard, seed), 'guard', { 类型: 'position', x: gx, y: gy },
+      'mg', '执行命令：回防' + (coord ? '(' + gx + ',' + gy + ')' : ''));
   }
-  // 5) 集合/靠拢
+  // 5) 集合/靠拢（报坐标则向坐标集合）
   if (CMD_RE.regroup.test(t)) {
-    const p = fanPoint(gameState, member, ownCenter);
+    const p = fanPoint(gameState, member, coord ? coord : ownCenter);
     return cmdDecision(pick(CMD_LINES.regroup, seed), 'move', { 类型: 'position', x: p.x, y: p.y },
-      null, '执行命令：集合');
+      null, '执行命令：集合' + (coord ? '(' + coord.x + ',' + coord.y + ')' : ''));
   }
   // 6) 找掩体 / 占高地（坐标由班组黑板挑，模型/解析器都只表达意图）
   if (CMD_RE.cover.test(t)) {
@@ -509,7 +537,7 @@ export function parseGodCommand(gameState, member, text, ctx) {
   if (CMD_RE.hold.test(t)) {
     return cmdDecision(pick(CMD_LINES.hold, seed), 'hold', null, null, '执行命令：待命');
   }
-  // 9) 进攻/攻击：能指名就打指名的目标，否则推进敌方指挥所
+  // 9) 进攻/攻击：能指名就打指名的目标；报坐标就向坐标推进（途中自动接敌）；否则推敌方指挥所
   if (CMD_RE.attack.test(t)) {
     const named = findNamedEnemy(gameState, member, t);
     if (named) {
@@ -517,6 +545,11 @@ export function parseGodCommand(gameState, member, text, ctx) {
       return cmdDecision(pick(CMD_LINES.attack, seed), 'attack_move',
         { 类型: named.isBuilding ? 'building' : 'unit', id: named.id },
         heavy ? 'rocket' : 'mg', '执行命令：攻击' + (named.memberName || named.name));
+    }
+    if (coord) {
+      return cmdDecision(pick(CMD_LINES.attack, seed), 'attack_move',
+        { 类型: 'position', x: coord.x, y: coord.y }, 'mg',
+        '执行命令：进攻(' + coord.x + ',' + coord.y + ')');
     }
     if (enemyHq) {
       return cmdDecision(pick(CMD_LINES.attack, seed), 'attack_move', { 类型: 'building', id: enemyHq.id },
@@ -538,6 +571,13 @@ export function parseGodCommand(gameState, member, text, ctx) {
         null, '执行命令：支援' + best.memberName, '队友');
     }
     return cmdDecision('我这边没有队友可支援。', 'hold', null, null, '无人可支援');
+  }
+
+  // 11) 纯坐标报点（没有动作词）：走到该格就位/观察——"去(32,20)" 这类指令
+  if (coord) {
+    return cmdDecision(pick(CMD_LINES.coord, seed), 'move',
+      { 类型: 'position', x: coord.x, y: coord.y }, null,
+      '执行命令：前往坐标(' + coord.x + ',' + coord.y + ')');
   }
 
   return { matched: false };

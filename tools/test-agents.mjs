@@ -703,6 +703,34 @@ ok('点名: 蓝2号立即锁定敌方载具', vehicleIds.indexOf(ag2.currentOrde
   JSON.stringify({ order: ag2.currentOrderTargetId, at: b1.attackTarget && b1.attackTarget.id }));
 eq('点名: 蓝2号命令行动进行中（供完成后续接）', ag2.commandActive, true);
 
+// ==================== 19. 坐标报点：走到指定格（视野外也可） ====================
+const pCoordMove = parseGodCommand(world, b0, '去(32,20)', pCtx);
+ok('坐标: 括号坐标→move', pCoordMove.matched && pCoordMove.decision.action === 'move' &&
+  pCoordMove.decision.target.x === 32 && pCoordMove.decision.target.y === 20, JSON.stringify(pCoordMove));
+const pCoordComma = parseGodCommand(world, b0, '32,20', pCtx);
+ok('坐标: 逗号坐标→move', pCoordComma.matched && pCoordComma.decision.action === 'move' &&
+  pCoordComma.decision.target.x === 32 && pCoordComma.decision.target.y === 20, JSON.stringify(pCoordComma));
+const pCoordXY = parseGodCommand(world, b0, '去 x32 y20 看看', pCtx);
+ok('坐标: x/y 前缀→move', pCoordXY.matched && pCoordXY.decision.action === 'move' &&
+  pCoordXY.decision.target.x === 32 && pCoordXY.decision.target.y === 20, JSON.stringify(pCoordXY));
+const pCoordAtk = parseGodCommand(world, b0, '去32 20攻击', pCtx);
+ok('坐标: 空格坐标+攻击→attack_move', pCoordAtk.matched && pCoordAtk.decision.action === 'attack_move' &&
+  pCoordAtk.decision.target.x === 32 && pCoordAtk.decision.target.y === 20, JSON.stringify(pCoordAtk));
+const pCoordNamed = parseGodCommand(world, b0, '2号 去(30,20)', pCtx);
+eq('坐标: 点名+坐标→他人只应声', pCoordNamed.matched && pCoordNamed.ackOnly, true);
+const pCoordSelf = parseGodCommand(world, b1, '2号 去(30,20)', Object.assign({}, pCtx, { spec: specOf(b1) }));
+ok('坐标: 被点名者按坐标移动', pCoordSelf.matched && !pCoordSelf.ackOnly && pCoordSelf.decision.action === 'move' &&
+  pCoordSelf.decision.target.x === 30 && pCoordSelf.decision.target.y === 20, JSON.stringify(pCoordSelf));
+const pCoordRetreat = parseGodCommand(world, b0, '撤退到(10,40)', pCtx);
+ok('坐标: 撤退+坐标→撤到该格', pCoordRetreat.matched && pCoordRetreat.decision.action === 'retreat' &&
+  pCoordRetreat.decision.target.x === 10 && pCoordRetreat.decision.target.y === 40, JSON.stringify(pCoordRetreat));
+eq('坐标: 越界坐标不作数（交还 LLM）', parseGodCommand(world, b0, '去(99,99)看看', pCtx).matched, false);
+eq('坐标: "血120 30"不误配为坐标', parseGodCommand(world, b0, '我血120 30', pCtx).matched, false);
+// 坐标决策直接落实体：move 到坐标（不依赖目标可见性）
+resetMember(b0, flat.x, flat.y);
+am._applyDecision(am.agents.get(b0.memberKey), b0, world, 400, pCoordMove.decision);
+ok('坐标: 移动决策落到路径', !!b0.path && b0.path.length > 0, JSON.stringify(b0.path));
+
 // ==================== 汇总 ====================
 console.log('\n通过 ' + passed + ' 项' + (failures.length ? '，失败 ' + failures.length + ' 项：' : '，全部通过 ✅'));
 failures.forEach((f) => console.log('  ✗ ' + f));

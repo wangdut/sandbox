@@ -800,7 +800,10 @@ export class AgentManager {
       case 'retreat': {
         const board = this._boardFor(gameState, agent.spec.team);
         const hq = board.ownHq;
-        const dest = hq ? tileCenter(hq) : (target && target.类型 === 'position' ? target : null);
+        // 命令/决策显式报了坐标就撤到坐标（如"撤退到(10,40)"），否则回指挥所
+        const dest = (target && target.类型 === 'position')
+          ? { x: Math.round(target.x), y: Math.round(target.y) }
+          : (hq ? tileCenter(hq) : null);
         if (!dest) { this._noteBlocked(agent, '找不到己方指挥所', frameCount); return false; }
         member.attackTarget = null;
         member.attackMoveTarget = null;
