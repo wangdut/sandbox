@@ -10,7 +10,8 @@ import { MEMBERS, WEAPONS, applyWeapon, boardVehicle, dismountVehicle } from '..
 import { fallbackDecide, quickCommandDecision } from '../src/agents/FallbackAI.js';
 import { isAIAutoTargetable } from '../src/agents/targeting.js';
 import { buildSystemPrompt, buildSnapshot } from '../src/agents/prompts.js';
-import { DEFAULT_CONFIG, resolveMemberAuth, isAgentEnabled, migrateConfig } from '../src/agents/config.js';
+import { DEFAULT_CONFIG, resolveMemberAuth, isAgentEnabled, migrateConfig, CONFIG_SCHEMA } from '../src/agents/config.js';
+import { buildSquadBoard, squadBrief, reliefTiles, onSandbag, onSummit, ROLE_NAMES } from '../src/agents/squadBoard.js';
 import { DEFENSE_DEFS, UNIT_DEFS } from '../src/definitions.js';
 import { GameMap } from '../src/GameMap.js';
 import { GameState, SANDBAG_DAMAGE_MULT } from '../src/GameState.js';
@@ -58,6 +59,10 @@ ok('解析: attack 缺目标被拒', !parseDecision('{"台词":"x","动作":"att
 ok('解析: move 缺目标被拒', !parseDecision('{"台词":"x","动作":"move"}').ok);
 ok('解析: move 可指向实体 id（乘驾/接近）', parseDecision('{"台词":"上车","动作":"move","目标":{"类型":"unit","id":9}}').ok);
 ok('解析: 空内容给出可读错误', /max_tokens|未返回内容/.test(parseDecision('').error));
+// 掩体/高地动作不带目标（坐标由引擎挑）
+ok('解析: cover 无需目标', parseDecision('{"台词":"我去找沙袋","动作":"cover"}').ok);
+eq('解析: highground 动作可用', parseDecision('{"台词":"上山顶","动作":"highground","目标":null,"武器":"机枪"}').decision.action, 'highground');
+eq('解析: 战术意图截到 24 字', parseDecision('{"台词":"打","动作":"hold","说明":"' + '难'.repeat(30) + '"}').decision.intent.length, 24);
 
 const longSay = parseDecision('{"台词":"' + '字'.repeat(55) + '","对谁":"敌人","动作":"hold","目标":null}');
 ok('解析: 台词截断到 40 字', longSay.ok && longSay.decision.say.length === 40);
@@ -255,6 +260,9 @@ eq('配置: 每局 token 上限默认 20 万', DEFAULT_CONFIG.budget.maxTokensPe
 const migrated = migrateConfig({ budget: { maxTokensPerGame: 80000 } });
 eq('配置: 老存档的旧默认额度被升级', migrated.budget.maxTokensPerGame, 200000);
 eq('配置: 老存档自定义额度不被覆盖', migrateConfig({ budget: { maxTokensPerGame: 12345 } }).budget.maxTokensPerGame, 12345);
+eq('配置: 老存档的配音块被清除', migrateConfig({ tts: { enabled: true, rate: 1.2 } }).tts, undefined);
+eq('配置: 结构版本升到 3', migrateConfig({}).schemaVersion, CONFIG_SCHEMA);
+eq('配置: 喊话冷却放宽到 18 秒（配合需要更密的队内交流）', DEFAULT_CONFIG.budget.chatCooldownSec, 18);
 eq('数值: 成员移速已降到 1.2（原 2.0 的 60%）', UNIT_DEFS.member.speed, 1.2);
 ok('数值: 成员血量上调', UNIT_DEFS.member.hp >= 420);
 ok('数值: 碉堡射速下调（更慢的压制节奏）', DEFENSE_DEFS.pillbox.fireRate >= 40);
@@ -390,6 +398,125 @@ const arcShot = fireThrough('rocket', 0);
 ok('弹道: 火箭走抛物线，越过高楼照样命中', arcShot.hit > 0 && tower.hp === hpAfterBullet);
 const clearShot = fireThrough('bullet', -4 * TILE_SIZE);
 ok('弹道: 未被遮挡的直射视线照常命中', clearShot.hit > 0);
+
+// ==================== 14. 班组协同：集火、支援、分散、抢战术位 ====================
+function resetMember(e, x, y) {
+  e.hp = e.maxHp; e.dead = false; e.mountType = e.mountType || null;
+  e.attackTarget = null; e.attackMoveTarget = null; e.guardPos = null;
+  e.path = []; e.pathIndex = 0; e.boardTarget = null; e.lastDamagedTimer = 0;
+  e.x = x; e.y = y;
+  return e;
+}
+const blueTeam = msys.liveMembers(world).filter(function (e) { return e.team === TEAM_PLAYER; });
+const redTeam = msys.liveMembers(world).filter(function (e) { return e.team === TEAM_ENEMY; });
+eq('协同: 每队三名成员成班', blueTeam.length, 3);
+eq('协同: 敌方同样三人', redTeam.length, 3);
+ok('协同: 每名成员都有战术分工', MEMBERS.every(function (m) { return !!ROLE_NAMES[m.role]; }));
+
+// 三人挤在地图角落的草地上：既不在山顶也不在沙袋，排除驻守分支的干扰
+const bx = flat.x, by = flat.y;
+blueTeam.forEach(function (e, i) { resetMember(e, bx + i, by); });
+redTeam.forEach(function (e, i) { resetMember(e, 60, 60 - i); });   // 先把敌方挪远，避免被当成"最近目标"
+world.spatialDirty = true;
+const [b0, b1, b2] = blueTeam;
+const [r0, r1] = redTeam;
+const boardReal = { ownHq: findHQ(world, TEAM_PLAYER), enemyHq: findHQ(world, TEAM_ENEMY) };
+const specOf = (e) => MEMBERS.find(function (m) { return m.key === e.memberKey; });
+
+// 1) 集火优先：两名队友锁定远处那个，第三人就不能去捡身边的另一个
+b0.attackTarget = r0; b1.attackTarget = r0;
+r0.x = bx + 6; r0.y = by; r0.hp = r0.maxHp;
+r1.x = bx + 2; r1.y = by; r1.hp = r1.maxHp;
+world.spatialDirty = true;
+const focusBoard = buildSquadBoard(world, b2);
+ok('协同: 黑板算出集火目标（' + focusBoard.focus.count + ' 人锁定 ' + (focusBoard.focus.target && focusBoard.focus.target.memberName) + '）',
+  !!focusBoard.focus && focusBoard.focus.count >= 2 && focusBoard.focus.target === r0);
+b2.range = 10;
+const dFocus = fallbackDecide(world, b2, { spec: specOf(b2), board: boardReal });
+eq('协同: 兜底 AI 补队友的火力而非另开目标', dFocus.action, 'attack');
+eq('协同: 集火选择压过最近敌人', dFocus.target.id, r0.id);
+ok('协同: 集火意图写进说明', (dFocus.intent || '').indexOf('集火') >= 0, dFocus.intent);
+
+// 2) 支援：队友残血且在交火，第三人靠过去而不是各自冲锋
+b0.attackTarget = null; b1.attackTarget = null; b2.attackTarget = null;
+resetMember(r0, 60, 60); resetMember(r1, 61, 60);
+b1.hp = Math.ceil(b1.maxHp * 0.3); b1.lastDamagedTimer = 120; b1.attackTarget = r0;
+r0.x = bx + 4; r0.y = by + 4; r0.hp = r0.maxHp;
+b0.range = 0.5;                       // b0 自己射程内没人，才有空去救
+world.spatialDirty = true;
+const supportBoard = buildSquadBoard(world, b0);
+ok('协同: 黑板点名求援队友', !!supportBoard.wounded && supportBoard.wounded.mate === b1);
+const dSupport = fallbackDecide(world, b0, { spec: specOf(b0), board: boardReal });
+eq('协同: 空闲成员转去支援', dSupport.action, 'attack_move');
+ok('协同: 支援意图写进说明', (dSupport.intent || '').indexOf('支援') >= 0, dSupport.intent);
+ok('协同: 支援点落在残血队友附近（带扇形偏移不扎堆）',
+  Math.abs(dSupport.target.x - b1.x) + Math.abs(dSupport.target.y - b1.y) <= 4,
+  JSON.stringify(dSupport.target));
+
+// 3) 分散：三人一起推敌方指挥所时，目标点必须各不相同（一发炮弹不能送走全班）
+// 清掉前一组用例留下的射程/血量改动并把敌人挪远，确保三人走的是"推进敌方指挥所"分支
+blueTeam.forEach(function (e, i) { resetMember(e, bx + i, by); applyWeapon(e, specOf(e).weapon); });
+resetMember(r0, 60, 60); resetMember(r1, 61, 60);
+world.spatialDirty = true;
+const pushes = blueTeam.map(function (e) {
+  const d = fallbackDecide(world, e, { spec: specOf(e), board: boardReal });
+  return d.action === 'attack_move' && d.target && d.target.类型 === 'position' ? d.target.x + ',' + d.target.y : d.action;
+});
+eq('协同: 三人推进点扇形分散', new Set(pushes).size, 3);
+
+// 4) 战术位不抢占：队友已经走向山顶，另一个人必须换一处
+// 挪到山包与沙袋阵地都能覆盖到的草地（角落离沙袋超过黑板的 30 格上限）
+blueTeam.forEach(function (e, i) { resetMember(e, 20 + i, 20); });
+world.spatialDirty = true;
+const own = buildSquadBoard(world, b0);
+ok('协同: 黑板给出空闲山顶与沙袋', !!own.highGround && !!own.cover);
+eq('协同: 山顶格确实是山顶', world.map.terrain[own.highGround.y][own.highGround.x], HILL_TOP);
+eq('协同: 沙袋格确实是沙袋', world.map.terrain[own.cover.y][own.cover.x], SANDBAG);
+b1.path = [{ x: own.highGround.x, y: own.highGround.y }];
+const rival = buildSquadBoard(world, b0).highGround;
+ok('协同: 同一座山顶不会派给两个人', !rival || !(rival.x === own.highGround.x && rival.y === own.highGround.y));
+b1.path = [];
+
+// 5) cover / highground 落到引擎：真的排出通往沙袋/山顶的路
+const qCover = quickCommandDecision('cover', b0, { board: boardReal, gameState: world });
+eq('快捷: 找掩体给出 cover 动作', qCover.action, 'cover');
+ok('快捷: 找掩体台词报出目标格', /（\d+,\d+）/.test(qCover.say), qCover.say);
+ok('快捷: 找掩体不需要目标字段', qCover.target === null);
+am._applyDecision(am.agents.get(b0.memberKey), b0, world, 100, qCover);
+eq('掩体: cover 把成员派往真实沙袋格', world.map.terrain[b0.attackMoveTarget.y][b0.attackMoveTarget.x], SANDBAG);
+ok('掩体: cover 确实排出了可行走的路径', b0.path.length > 0);
+const qHill = quickCommandDecision('highground', b1, { board: boardReal, gameState: world });
+eq('快捷: 占高地给出 highground 动作', qHill.action, 'highground');
+am._applyDecision(am.agents.get(b1.memberKey), b1, world, 100, qHill);
+eq('高地: highground 把成员派往真实山顶格', world.map.terrain[b1.attackMoveTarget.y][b1.attackMoveTarget.x], HILL_TOP);
+// 已经把山顶占了，就不该再给第二个人同一座山
+b1.x = b1.attackMoveTarget.x; b1.y = b1.attackMoveTarget.y;
+ok('协同: 站进沙袋/山顶后脚下地形被认出', onSandbag(world.map, { x: own.cover.x, y: own.cover.y }) && onSummit(world.map, b1));
+const b2Hill = buildSquadBoard(world, b2).highGround;
+ok('协同: 已被队友站住的山顶不再分配给别人',
+  !b2Hill || !(b2Hill.x === b1.x && b2Hill.y === b1.y), JSON.stringify(b2Hill));
+
+// 6) 自保反射优先躲进沙袋，而不是任意一个安全格
+const zeroDanger = new Float32Array(MAP_WIDTH * MAP_HEIGHT);
+const bagTile = own.cover;
+const nearBag = { x: bagTile.x, y: bagTile.y + 2, team: TEAM_PLAYER };
+const dodged = am._findSafeTile(world, nearBag, zeroDanger);
+eq('掩体: 自保反射优先选沙袋格', world.map.terrain[dodged.y][dodged.x], SANDBAG);
+
+// 7) 快照把协同喂给模型
+b0.attackTarget = r0; b1.attackTarget = r0;
+r0.x = 24; r0.y = 20; r0.hp = r0.maxHp; r0.dead = false;
+world.spatialDirty = true;
+const squadSnap = JSON.parse(buildSnapshot(world, b2, {
+  spec: specOf(b2), board: boardReal, events: [], allyMsgs: [], enemyMsgs: [], lastCommand: null, currentAction: null,
+}));
+ok('协同: 快照出现集火提示', /人正在打「烈焰」/.test(squadSnap['协同'].集火 || ''), squadSnap['协同'].集火);
+ok('协同: 队友条目带上在打谁', (squadSnap['队友'] || []).some(function (a) { return a['正在打'] === r0.memberName; }));
+ok('协同: 分工栏写明角色与站位纪律', (squadSnap['协同'].分工 || '').indexOf(ROLE_NAMES[specOf(b2).role]) === 0);
+ok('协同: 系统提示要求配合', buildSystemPrompt(MEMBERS[0]).indexOf('【协同】') >= 0);
+const briefEmpty = squadBrief({ role: 'recon', mates: [], focus: null, wounded: null, highGround: null, cover: null });
+eq('协同: 无态势时只留分工栏', Object.keys(briefEmpty).length, 1);
+eq('协同: 战术格按地图只扫一次', reliefTiles(world.map) === reliefTiles(world.map), true);
 
 // ==================== 汇总 ====================
 console.log('\n通过 ' + passed + ' 项' + (failures.length ? '，失败 ' + failures.length + ' 项：' : '，全部通过 ✅'));
