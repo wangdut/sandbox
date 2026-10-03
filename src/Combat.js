@@ -47,7 +47,9 @@ export function countLinkedPrisms(gameState, tower, target) {
 }
 
 export function performAttack(gameState, attacker, target) {
-  attacker.fireCooldown = attacker.fireRate;
+  // 攻速倍率：0.5 = 冷却翻倍 = 射速减半，让成员在被秒前有窗口做决策
+  var atkMult = gameState.attackSpeedMult == null ? 1 : gameState.attackSpeedMult;
+  attacker.fireCooldown = attacker.fireRate / atkMult;
   attacker.muzzleFlash = 6;
   attacker.turretDir = Math.atan2(target.getCenterY() / TILE_SIZE - attacker.y - 0.5, target.getCenterX() / TILE_SIZE - attacker.x - 0.5);
   
@@ -116,7 +118,8 @@ export function performAttack(gameState, attacker, target) {
 }
 
 export function performBurstShot(gameState, attacker, target) {
-  attacker.fireCooldown = 8;
+  var atkMult = gameState.attackSpeedMult == null ? 1 : gameState.attackSpeedMult;
+  attacker.fireCooldown = 8 / atkMult;
   attacker.muzzleFlash = 4;
   var dmg = attacker.damage;
   if (attacker.veterancy >= 1) dmg = Math.floor(dmg * 1.25);

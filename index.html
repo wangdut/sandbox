@@ -73,8 +73,15 @@
   <span id="gameTime">00:00</span>
   <button id="pauseBtn" onclick="togglePause()">暂停</button>
   <div id="speedBox">
-    <input type="range" id="speedSlider" min="0" max="4" step="0.25" value="1" oninput="setGameSpeed(this.value)">
-    <span id="speedLabel">1×</span>
+    <label class="tune" title="移动速度倍率：只影响成员移动，子弹速度与思考节奏不变">移速
+      <input type="number" id="moveSpeed" value="1" min="0" max="20" step="0.1" onchange="setMoveSpeed(this.value)">×
+    </label>
+    <label class="tune" title="攻击速度倍率：0.5 = 射速减半，给成员留出决策时间">攻速
+      <input type="number" id="atkSpeed" value="0.5" min="0.1" max="10" step="0.1" onchange="setAttackSpeed(this.value)">×
+    </label>
+    <label class="tune" title="伤害倍率：0.5 = 伤害减半，避免见面即被秒">伤害
+      <input type="number" id="dmgMult" value="0.5" min="0.1" max="10" step="0.1" onchange="setDamageMult(this.value)">×
+    </label>
   </div>
   <button id="budgetBtn" onclick="addTokenBudget(50000)" title="本局 token 额度 +5 万，并立刻解除成员的降级状态">+5万额度</button>
   <button id="endBtn" onclick="endGame()" title="结束本局并弹出结算">结束本局</button>

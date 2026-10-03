@@ -39,7 +39,7 @@ let selectedUnits = [], selectedBuilding = null;
 let placingBuilding = false, placingType = null;
 let gameStartTime = 0, difficulty = 'normal';
 let frameCount = 0;
-let gameRunning = false, gamePaused = false, gameSpeed = 1;
+let gameRunning = false, gamePaused = false;
 let activeAction = null;
 let notifTimer = 0;
 
@@ -83,10 +83,9 @@ function startGame(side) {
   frameCount = 0;
   gameRunning = true;
   gamePaused = false;
-  gameSpeed = 1;
   activeAction = null;
   notifTimer = 0;
-  setGameSpeed(1);   // 同步速度滑动条与标签
+  syncTuningUI();   // 从顶部三个输入框读入移速/攻速/伤害倍率（默认 1/0.5/0.5）
   document.getElementById('startScreen').style.display = 'none';
   document.getElementById('gameOver').style.display = 'none';
   renderer = new Renderer(canvas, minimapCanvas);
@@ -276,7 +275,9 @@ function gameLoop(timestamp) {
   if (dt > 250) dt = 250;   // 长时间挂起（切标签页）不补算
 
   if (!gamePaused) {
-    accumulator += dt * gameSpeed;
+    // 固定 60 帧步长：速度倍率只缩放「移动」，不再整体加速弹道/冷却/思考，
+    // 否则调慢速度会把子弹速度也一起拖慢（不合理）。
+    accumulator += dt;
     let steps = 0;
     while (accumulator >= FRAME_MS && steps < MAX_STEPS_PER_RAF) {
       accumulator -= FRAME_MS;
@@ -675,21 +676,41 @@ function togglePause() {
 }
 
 /**
- * 设置游戏速度：0 = 暂停，其余按倍率推进（滑动条 0–4×）
+ * 战斗节奏三档倍率（顶部三个数字输入框实时改）。
+ * 只缩放各自对应的维度：移速只影响赶路，攻速只影响开火冷却，伤害统一走 damageEntity 入口。
  */
-function setGameSpeed(v) {
-  const val = Number(v);
-  gameSpeed = Number.isFinite(val) ? Math.max(0, Math.min(4, val)) : 1;
-  const label = document.getElementById('speedLabel');
-  if (label) label.textContent = gameSpeed === 0 ? '暂停' : gameSpeed.toFixed(2).replace(/0$/, '') + '×';
-  const slider = document.getElementById('speedSlider');
-  if (slider && Number(slider.value) !== gameSpeed) slider.value = String(gameSpeed);
-  // 速度为 0 时也要把暂停按钮状态同步，避免出现"没暂停但不动"的困惑
-  if (gameSpeed === 0 && !gamePaused) {
-    gamePaused = true;
-    const btn = document.getElementById('pauseBtn');
-    if (btn) { btn.textContent = '继续'; btn.classList.add('paused'); }
-  }
+function clampTune(v, min, max, fallback) {
+  const n = Number(v);
+  if (!Number.isFinite(n)) return fallback;
+  return Math.max(min, Math.min(max, n));
+}
+
+function setMoveSpeed(v) {
+  const val = clampTune(v, 0, 20, 1);
+  const box = document.getElementById('moveSpeed');
+  if (box && Number(box.value) !== val) box.value = String(val);
+  if (gameState) gameState.speedMult = val;
+}
+
+function setAttackSpeed(v) {
+  const val = clampTune(v, 0.1, 10, 0.5);
+  const box = document.getElementById('atkSpeed');
+  if (box && Number(box.value) !== val) box.value = String(val);
+  if (gameState) gameState.attackSpeedMult = val;
+}
+
+function setDamageMult(v) {
+  const val = clampTune(v, 0.1, 10, 0.5);
+  const box = document.getElementById('dmgMult');
+  if (box && Number(box.value) !== val) box.value = String(val);
+  if (gameState) gameState.damageMult = val;
+}
+
+/** 开局/读档时把三个输入框的当前值写回 gameState（读档构造的是全新 GameState，倍率需重挂） */
+function syncTuningUI() {
+  setMoveSpeed(document.getElementById('moveSpeed').value);
+  setAttackSpeed(document.getElementById('atkSpeed').value);
+  setDamageMult(document.getElementById('dmgMult').value);
 }
 
 /**
@@ -841,7 +862,7 @@ function loadGame() {
   placingType = null;
   gameRunning = true;
   gamePaused = false;
-  gameSpeed = 1;
+  syncTuningUI();   // 读档后的 GameState 是全新的，把移速/攻速/伤害倍率重新挂上
   activeAction = null;
   if (input) {
     input.pendingAttackMove = false;
@@ -862,7 +883,9 @@ function loadGame() {
 
 window.startGame = startGame;
 window.togglePause = togglePause;
-window.setGameSpeed = setGameSpeed;
+window.setMoveSpeed = setMoveSpeed;
+window.setAttackSpeed = setAttackSpeed;
+window.setDamageMult = setDamageMult;
 window.addTokenBudget = addTokenBudget;
 window.endGame = endGame;
 window.restartGame = restartGame;

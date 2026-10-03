@@ -55,23 +55,21 @@ body.sandbox #superWeaponPanel { display: none !important; }
 /* ===== 顶部：双方指挥所血量（胜负目标） ===== */
 #hqStatus { display: flex; gap: 18px; align-items: center; margin-left: 4px; }
 
-/* 顶部新增控制：速度滑动条 + 额度/结束/重开按钮 */
-#speedBox { display: flex; align-items: center; gap: 6px; }
-#speedSlider {
-  width: 104px; height: 4px; -webkit-appearance: none; appearance: none;
-  background: linear-gradient(90deg, #4a9fd4, #f1c40f, #c0392b);
-  border-radius: 2px; outline: none; cursor: pointer;
+/* 顶部新增控制：移速/攻速/伤害三个倍率输入框（滑动条已改为填写框，更省空间） */
+#speedBox { display: flex; align-items: center; gap: 10px; }
+#speedBox .tune {
+  display: flex; align-items: center; gap: 3px;
+  color: #888; font-size: 11px; white-space: nowrap; cursor: default;
 }
-#speedSlider::-webkit-slider-thumb {
-  -webkit-appearance: none; appearance: none;
-  width: 13px; height: 13px; border-radius: 50%;
-  background: #e8e8f0; border: 2px solid #c0392b; cursor: grab;
+#speedBox .tune input {
+  width: 42px; height: 22px; padding: 0 4px;
+  background: #12121f; color: #f1c40f; border: 1px solid #34344a;
+  border-radius: 3px; font-size: 11px; font-family: inherit; text-align: center;
+  -moz-appearance: textfield;
 }
-#speedSlider::-moz-range-thumb {
-  width: 13px; height: 13px; border-radius: 50%;
-  background: #e8e8f0; border: 2px solid #c0392b; cursor: grab;
-}
-#speedLabel { color: #ccc; font-size: 11px; min-width: 42px; text-align: left; }
+#speedBox .tune input::-webkit-outer-spin-button,
+#speedBox .tune input::-webkit-inner-spin-button { -webkit-appearance: none; margin: 0; }
+#speedBox .tune input:focus { border-color: #c0392b; outline: none; }
 
 #budgetBtn, #endBtn, #restartBtn {
   background: linear-gradient(180deg, #23233a, #14141f);

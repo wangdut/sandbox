@@ -46,6 +46,11 @@ export class GameState {
     this.playerPowerBlackout = 0;
     this.enemyPowerBlackout = 0;
     this._playExplosionSound = null;
+    // 战斗节奏倍率（顶部三个输入框实时改）。构造器里是引擎原始值 1×；
+    // 沙盘开局（main.js startGame）会把攻速/伤害压到 0.5，给成员留出决策与执行时间。
+    this.speedMult = 1;       // 移动速度倍率：只缩放单位移动，不碰子弹速度与思考节奏
+    this.attackSpeedMult = 1; // 攻速倍率：0.5 = 射速减半（开火冷却翻倍）
+    this.damageMult = 1;      // 伤害倍率：0.5 = 所有伤害减半
     this.spatialGrid = new SpatialGrid(MAP_WIDTH, MAP_HEIGHT);
     // 威胁网格（每队一张）：记录"进入敌方防御射程"的代价，供成员寻路绕开碉堡/炮塔。
     // 没有它，A* 会挑最短路直接穿过防御火力，表现为"说要绕后却硬刚碉堡"
@@ -367,6 +372,11 @@ export class GameState {
     if (target.invulnerable) {
       this.addFloatingText(target.getCenterX(), target.getCenterY() - 14, '无敌', '#8e44ad');
       return;
+    }
+    // 全局伤害倍率（顶部"伤害"框）：统一缩放所有伤害，让成员有足够时间决策与执行，
+    // 而不是见面即被秒。落在沙袋减伤之前，两者可叠加。
+    if (this.damageMult > 0 && this.damageMult !== 1) {
+      dmg = Math.max(1, Math.round(dmg * this.damageMult));
     }
     // 沙袋工事减伤：所有伤害都走这个入口，溅射因此自动同样被削减。
     // 建筑是硬目标，不吃地形减免。

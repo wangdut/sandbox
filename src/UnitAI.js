@@ -340,7 +340,9 @@ export function moveUnit(gameState, unit) {
       else if (terrain === CONCRETE) tMod = 1.15;
       else if (terrain === TREE) tMod = 0.7; // 树林减速
     }
-    var ms = unit.speed * 0.075 * tMod;
+    // 移速倍率只作用在这里（顶部"移速"框）：加快/放慢的是赶路，子弹速度与思考节奏不变
+    var speedMult = gameState.speedMult == null ? 1 : gameState.speedMult;
+    var ms = unit.speed * 0.075 * tMod * speedMult;
     if (dist < ms) { unit.x = tx; unit.y = ty; unit.pathIndex++; }
     else { unit.x += dx / dist * ms; unit.y += dy / dist * ms; unit.direction = Math.atan2(dy, dx); unit.turretDir = unit.direction; }
     unit.animTimer++;
