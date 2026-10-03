@@ -10,6 +10,7 @@
 <body class="sandbox">
 
 <div id="startScreen">
+  <button id="startFullscreenBtn" onclick="startFullscreen()" title="全屏 / 退出全屏">⛶ 全屏</button>
   <h1>VIRTUAL SANDBOX</h1>
   <h2>虚拟沙盘 · 即时战术</h2>
   <p class="sub">6 名虚拟成员 · 你指挥己方 3 名 · 摧毁对方指挥所即获胜</p>
@@ -207,6 +208,14 @@
 
 <div id="notification"></div>
 <script>
+// 开始界面全屏按钮：自包含实现，不依赖 main.js 加载时机
+function startFullscreen() {
+  if (!document.fullscreenElement) {
+    document.documentElement.requestFullscreen().catch(function () {});
+  } else {
+    document.exitFullscreen();
+  }
+}
 // 倍率输入框的上下步进按钮：每次 ±0.1（四舍五入到一位小数），自动触发输入框原有的 onchange
 function nudgeValue(id, delta) {
   const el = document.getElementById(id);
