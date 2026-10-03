@@ -19,7 +19,7 @@ import { buildSquadBoard } from './squadBoard.js';
 import { chatOnce } from './LLMClient.js';
 import { isAgentEnabled, resolveMemberAuth, isLLMReady } from './config.js';
 
-const MAX_INFLIGHT = 3;          // 同时在途的 LLM 请求上限（避免瞬时打爆限流）
+const MAX_INFLIGHT = 6;          // 同时在途的 LLM 请求上限（六名成员六把独立 Key，可全并行，不必排队）
 const CONTACT_RANGE = 10;        // 判定"发现敌人"的距离（格）
 const EVENT_CAP = 8;
 const MSG_CAP = 4;
