@@ -11,11 +11,14 @@
 // 决策规则（确定性，便于断言）：
 //   · 乘驾中且载具血量<25% → dismount（弃车保命）
 //   · 血量低于 40%          → retreat（撤回指挥所）
+//   · ≥2 名队友锁定同一目标 → attack 该目标（集火，优先于自己另找目标）
 //   · 射程内有目标（≤6格）  → attack 最近目标
 //   · 有目标在 12 格内      → attack_move 该目标
 //   · 步兵且 10 格内有空车、12 格内无敌人 → board 该载具
+//   · 协同栏出现「求援」    → attack_move 靠向残血队友（支援）
+//   · 空闲且按分工          → 侦察手 highground、其余 cover（战术位由引擎挑格）
 //   · 否则                  → attack_move 敌方指挥所（火箭筒）
-//   台词会带上触发的命令/战况；夜枭会尝试对敌方喊话，雷霆会尝试呼叫队友配合。
+//   台词会带上触发的命令/战况；夜枭会尝试对敌方喊话，雷霆会呼叫队友配合（长台词验证 40 字显示）。
 
 import http from 'node:http';
 
@@ -49,6 +52,29 @@ function decide(snap) {
   const mounts = snap['可用载具'] || [];
   const mounted = !!self['载具'];
   const hpRatio = hpMax > 0 ? hpNow / hpMax : 1;
+  const brief = snap['协同'] || {};
+  const terrain = snap['地形'] || {};
+  const role = String(brief['分工'] || '').split('：')[0];   // 突击手/爆破手/侦察手/重装兵
+
+  // 集火：把队友「正在打」的统计成票数，再回到可选目标里取 id（模型只会说名字，id 必须来自目标表）
+  function focusTarget() {
+    const votes = {};
+    const cur = snap['当前动作'] || {};
+    if (cur['目标'] && (cur['动作'] === 'attack' || cur['动作'] === 'attack_move')) votes[cur['目标']] = 1;
+    allies.forEach(function (a) { const n = a['正在打']; if (n) votes[n] = (votes[n] || 0) + 1; });
+    let name = null, best = 0;
+    Object.keys(votes).forEach(function (k) { if (votes[k] > best) { best = votes[k]; name = k; } });
+    if (!name || best < 2) return null;
+    return targets.filter(function (t) { return t['名称'] === name; })[0] || null;
+  }
+  const focus = focusTarget();
+  const strike = focus && focus['距离'] <= 12 ? focus : nearest;
+
+  function allyRatio(a) {
+    const cur = num(a['血量']);
+    const max = num(String(a['血量'] || '').split('/')[1]) || cur || 1;
+    return max > 0 ? cur / max : 1;
+  }
 
   // 载具快被打爆 → 弃车保命（触发弹射/下车链路）
   if (mounted && hpRatio < 0.25) {
@@ -90,26 +116,57 @@ function decide(snap) {
 
   const enemyHqPos = (snap['指挥所'] || {})['敌方位置'] || [33, 8];
 
-  if (nearest && nearest['距离'] <= 6) {
+  // 已占住战术位且近处有敌人：就地守着打伏击（和脚本兜底同一规则，防止反复上下山）
+  const onSpot = terrain['脚下'] === '山顶' || terrain['脚下'] === '沙袋阵地';
+  if (onSpot && targets.some(function (t) { return t['距离'] <= 14; })) {
     return {
-      台词: '接敌，开火！',
-      对谁: null,
-      动作: 'attack',
-      目标: { 类型: kindOf(nearest), id: nearest.id },
-      武器: kindOf(nearest) === 'building' ? '火箭筒' : '机枪',
-      说明: '歼灭近处目标',
+      台词: terrain['脚下'] === '山顶'
+        ? '我在山顶观察位盯着，来敌我全看见了，队友放心压上。'
+        : '沙袋阵地卡住了，他的直射伤不到我，你们从两侧绕。',
+      对谁: '队友',
+      动作: 'hold',
+      目标: null,
+      武器: '机枪',
+      说明: '驻守战术位',
     };
   }
 
-  if (nearest && nearest['距离'] <= 12) {
+  if (strike && strike['距离'] <= 6) {
     return {
-      台词: '发现敌人，压上去！',
-      对谁: null,
-      动作: 'attack_move',
-      目标: { 类型: kindOf(nearest), id: nearest.id },
-      武器: kindOf(nearest) === 'building' ? '火箭筒' : '机枪',
-      说明: '接近交战',
+      台词: strike === focus ? '我看到' + strike['名称'] + '了，集火它，我补炮！' : '接敌，开火！',
+      对谁: strike === focus ? '队友' : null,
+      动作: 'attack',
+      目标: { 类型: kindOf(strike), id: strike.id },
+      武器: kindOf(strike) === 'building' ? '火箭筒' : '机枪',
+      说明: strike === focus ? '配合队友集火' : '歼灭近处目标',
     };
+  }
+
+  if (strike && strike['距离'] <= 12) {
+    return {
+      台词: strike === focus ? '队友在打' + strike['名称'] + '，我压上去一起收拾它！' : '发现敌人，压上去！',
+      对谁: strike === focus ? '队友' : null,
+      动作: 'attack_move',
+      目标: { 类型: kindOf(strike), id: strike.id },
+      武器: kindOf(strike) === 'building' ? '火箭筒' : '机枪',
+      说明: strike === focus ? '集火并接近' : '接近交战',
+    };
+  }
+
+  // 支援：协同栏点名了残血交火的队友，先靠过去组交叉火力，别自己往前冲
+  if (brief['求援']) {
+    const weak = allies.filter(function (a) { return a['位置'] && allyRatio(a) < 0.55; })
+      .sort(function (a, b) { return a['距离'] - b['距离']; })[0] || null;
+    if (weak) {
+      return {
+        台词: weak['名称'] + ' 顶住，我往你那边靠，交叉火力别扎堆！',
+        对谁: '队友',
+        动作: 'attack_move',
+        目标: { 类型: 'position', x: weak['位置'][0], y: weak['位置'][1] },
+        武器: '机枪',
+        说明: '支援队友',
+      };
+    }
   }
 
   // 由上帝命令驱动的推进（回应命令的同时给出战术）
@@ -123,6 +180,30 @@ function decide(snap) {
       武器: '火箭筒',
       说明: toEnemy ? '执行进攻命令' : '执行命令',
     };
+  }
+
+  // 空闲时按分工抢战术位：cover / highground 不带目标，引擎自己挑没被队友占的格
+  if (!mounted && terrain['最近沙袋']) {
+    if (role === '侦察手' && terrain['最近山顶'] && terrain['脚下'] !== '山顶') {
+      return {
+        台词: '我去山顶占观察位，那边视野好，先给你们报点再开火。',
+        对谁: '队友',
+        动作: 'highground',
+        目标: null,
+        武器: '机枪',
+        说明: '占高地观察报点',
+      };
+    }
+    if (role !== '侦察手' && terrain['脚下'] !== '沙袋阵地') {
+      return {
+        台词: '我进最近的沙袋阵地架枪，正面替你们吃直射火力。',
+        对谁: '队友',
+        动作: 'cover',
+        目标: null,
+        武器: '机枪',
+        说明: '进沙袋建火力点',
+      };
+    }
   }
 
   // 空闲：尝试社交（覆盖阵营内协作与跨阵营喊话两条链路）

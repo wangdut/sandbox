@@ -7,7 +7,7 @@
 //   · 把决策翻译成引擎指令（寻路 / 锁定目标 / 切换武器 / 守卫）
 //   · 阵营内协作与跨阵营喊话的消息分发
 
-import { FPS, TEAM_PLAYER, TEAM_NAMES, MAP_WIDTH, MAP_HEIGHT } from '../constants.js';
+import { FPS, TEAM_PLAYER, TEAM_NAMES, MAP_WIDTH, MAP_HEIGHT, SANDBAG } from '../constants.js';
 import { MEMBERS, WEAPONS, dismountVehicle } from '../sandbox/memberDefs.js';
 import { findHQ } from '../sandbox/scenario.js';
 import { session } from '../core/session.js';
@@ -15,6 +15,7 @@ import { buildSystemPrompt, buildSnapshot } from './prompts.js';
 import { parseDecision } from './parser.js';
 import { fallbackDecide, quickCommandDecision } from './FallbackAI.js';
 import { isAIAutoTargetable } from './targeting.js';
+import { buildSquadBoard } from './squadBoard.js';
 import { chatOnce } from './LLMClient.js';
 import { isAgentEnabled, resolveMemberAuth, isLLMReady } from './config.js';
 
@@ -233,11 +234,12 @@ export class AgentManager {
     return true;
   }
 
-  /** 找最近的"安全格"（威胁 < 0.3 且可通行）；找不到就退回己方指挥所 */
+  /** 找最近的"安全格"（威胁 < 0.3 且可通行），同等距离下优先沙袋工事；找不到就退回己方指挥所 */
   _findSafeTile(gameState, member, danger) {
     const mx = Math.floor(member.x), my = Math.floor(member.y);
+    const terrain = gameState.map && gameState.map.terrain;
     for (let r = 2; r <= 9; r++) {
-      let best = null, bestD = Infinity;
+      let best = null, bestD = Infinity, bag = null, bagD = Infinity;
       for (let dy = -r; dy <= r; dy++) {
         for (let dx = -r; dx <= r; dx++) {
           if (Math.max(Math.abs(dx), Math.abs(dy)) !== r) continue;  // 只搜半径 r 的方环
@@ -246,9 +248,13 @@ export class AgentManager {
           if (danger[ty * MAP_WIDTH + tx] > 0.3) continue;
           if (!gameState.map.isPassable(tx, ty)) continue;
           const d = dx * dx + dy * dy;
-          if (d < bestD) { bestD = d; best = { x: tx, y: ty }; }
+          if (terrain && terrain[ty] && terrain[ty][tx] === SANDBAG) {
+            if (d < bagD) { bagD = d; bag = { x: tx, y: ty }; }
+          } else if (d < bestD) { bestD = d; best = { x: tx, y: ty }; }
         }
       }
+      // 一样能脱离火力，蹲进沙袋还能把接下来的伤害削掉四成
+      if (bag) return bag;
       if (best) return best;
     }
     const hq = findHQ(gameState, member.team);
@@ -659,6 +665,25 @@ export class AgentManager {
         break;
       }
 
+      case 'cover':
+      case 'highground': {
+        // 坐标由班组黑板挑「队友没占」的战术位，模型只表达意图、不报数
+        const squad = buildSquadBoard(gameState, member);
+        const spot = action === 'cover' ? squad.cover : squad.highGround;
+        if (!spot) {
+          this._noteBlocked(agent, action === 'cover' ? '附近没有空闲沙袋阵地' : '附近没有空闲山顶观察位', frameCount);
+          return false;
+        }
+        member.attackTarget = null;
+        // 用 attackMoveTarget 而非 guardPos：赶路途中照打，找掩体不等于停止交火
+        member.attackMoveTarget = { x: spot.x, y: spot.y };
+        member.guardPos = null;
+        member.path = map.findPath(mx, my, spot.x, spot.y, 3000, member, true);
+        member.pathIndex = 0;
+        agent.currentOrderTargetId = 0;
+        break;
+      }
+
       default:
         break;
     }
@@ -668,7 +693,8 @@ export class AgentManager {
     if (action === 'attack') {
       inEffect = !!member.attackTarget;
       if (!inEffect) this._noteBlocked(agent, '没有可攻击的目标', frameCount);
-    } else if (action === 'attack_move' || action === 'move' || action === 'retreat' || action === 'guard') {
+    } else if (action === 'attack_move' || action === 'move' || action === 'retreat' || action === 'guard' ||
+               action === 'cover' || action === 'highground') {
       const hasPath = member.path && member.path.length > member.pathIndex;
       const dest = member.attackMoveTarget || member.guardPos;
       const atDest = dest ? (Math.abs(dest.x - member.x) + Math.abs(dest.y - member.y) <= 2) : true;

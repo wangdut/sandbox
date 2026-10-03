@@ -478,7 +478,8 @@ function sendGodCommand(text, source) {
  */
 function sendQuickCommand(kind) {
   if (!commandBus || !agentManager) return;
-  const LABELS = { allAttack: '总攻', retreat: '撤退', defend: '回防', regroup: '集合', mount: '上车', dismount: '下车' };
+  const LABELS = { allAttack: '总攻', retreat: '撤退', defend: '回防', regroup: '集合',
+    cover: '找掩体', highground: '占高地', mount: '上车', dismount: '下车' };
   const label = LABELS[kind] || kind;
   commandBus.sendCommand({ team: session.humanTeam, type: 'quick', kind: kind, text: '【' + label + '】', queue: false });
   chatPanel.addSystem('【你 → 己方】' + label + '（快捷命令，不消耗 token）');

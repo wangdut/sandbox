@@ -5,7 +5,7 @@
 
 import { WEAPONS } from '../sandbox/memberDefs.js';
 
-export const ACTIONS = ['attack_move', 'attack', 'move', 'retreat', 'hold', 'guard', 'board', 'dismount'];
+export const ACTIONS = ['attack_move', 'attack', 'move', 'retreat', 'hold', 'guard', 'board', 'dismount', 'cover', 'highground'];
 const MOVE_ACTIONS = ['attack_move', 'move', 'retreat'];
 
 const WEAPON_ALIAS = {

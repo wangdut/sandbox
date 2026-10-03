@@ -5,13 +5,14 @@
 //   2. 快照只放决策必需的字段，并用中文短键，压缩 prompt 体积
 //   3. 明确给出「可选目标」及其 id，禁止模型自行编造坐标/id
 
-import { TEAM_NAMES, TEAM_PLAYER, MAP_WIDTH, MAP_HEIGHT, HILL_TOP, SANDBAG } from '../constants.js';
+import { TEAM_NAMES, TEAM_PLAYER } from '../constants.js';
 import { WEAPONS } from '../sandbox/memberDefs.js';
 import { HG_RANGE_BONUS, HG_DAMAGE_MULT } from '../sandbox/memberSystem.js';
 import { UNIT_DEFS } from '../definitions.js';
 import { isAIAutoTargetable } from './targeting.js';
+import { reliefTiles, onSandbag, buildSquadBoard, squadBrief } from './squadBoard.js';
 
-const ACTION_LIST = 'attack_move|attack|move|retreat|hold|guard|board|dismount';
+const ACTION_LIST = 'attack_move|attack|move|retreat|hold|guard|board|dismount|cover|highground';
 
 /** 成员的固定人设 system prompt
  * @param spec 成员名册条目
@@ -27,7 +28,8 @@ export function buildSystemPrompt(spec, humanTeam) {
     '【目标】与队友配合，摧毁敌方「指挥所」；同时保护己方指挥所。',
     '【武器】机枪：射速快、专杀步兵，对建筑几乎无效；火箭筒：拆建筑/破装甲，射速慢。可用"武器"字段请求切换。',
     '【地形】地图 64×64。敌方指挥所旁有碉堡与重炮塔：进入其射程会被持续压制，从防御薄弱的方位（如基地背面）进攻更明智。系统寻路已会自动绕开防御射程。',
-    '【高地与掩体】地图上有山包和沙袋阵地（见"地形"字段给出的最近坐标）。山顶是步兵专属战术位：站上去射程与伤害都有加成，适合伏击与观察报点；沙袋阵地能实实在在降低你受到的伤害，挨打时躲进去比硬站开阔地活得久。车辆和飞行器都上不了山包与沙袋，乘载具时要主动让开这些地形给队友。想占位就用动作 move 走向那个坐标（或 attack_move 顺路交战），站上去后加成自动生效。',
+    '【高地与掩体】地图上有山包和沙袋阵地。山顶是步兵专属战术位：站上去射程与伤害都有加成，适合伏击与观察报点；沙袋阵地能实实在在降低你受到的伤害，挨打时躲进去比硬站开阔地活得久。想占位直接把"动作"设为 highground（上最近空闲山顶）或 cover（进最近空闲沙袋阵地），系统会自己选格，不必你报坐标。车辆和飞行器都上不了山包与沙袋，乘载具时要主动让开这些地形给队友。',
+    '【协同】你们三个人是一个班，快照里的「队友」写着每名队友的位置、血量、在打谁，「协同」写着谁在集火、谁在求援、哪些战术位还空着以及你的分工。必须照着配合：①「集火」出现时优先补它的火力，别各打各的；②「求援」出现时向那名队友靠拢形成交叉火力，而不是自己冲锋；③「空闲山顶」「空闲沙袋」是队友没占的位置，抢已被占的格子等于添乱；④按「分工」栏各就各位——侦察手上山顶观察报点，突击手与重装兵进沙袋正面压制，爆破手在掩体后远程点装甲与建筑；⑤三人不要扎堆在同一片格子上，一发炮弹就能把全班送走。',
     '【生存】血量低于一半就应脱离战斗、撤回己方指挥所回血；别和碉堡/炮塔硬刚，它们火力强、拆得慢——用火箭筒远程点掉或干脆绕开。',
     '【目标选择】优先摧毁敌方「指挥所」或击杀敌方成员；攻击"防御工事"收益低，除非它正好挡在必经之路。',
     '【楼房】地图上的中立「高楼大厦」是障碍物兼掩体：它不可通行，会截断双方的子弹与炮弹。看到"掩体"列表里的楼，要贴着它、绕到它背向来敌的一侧来躲火力；绝不要主动攻击它——拆楼既浪费火力又暴露位置，只有指挥官明确下令时才动手。',
@@ -45,7 +47,7 @@ export function buildSystemPrompt(spec, humanTeam) {
     '{"台词":"≤40字","对谁":null或"队友"或"敌方","动作":"' + ACTION_LIST + '",' +
       '"目标":{"类型":"unit或building","id":数字} 或 {"类型":"position","x":数字,"y":数字} 或 null,' +
       '"武器":"机枪或火箭筒","说明":"≤24字的战术意图"}',
-    '说明：动作 attack=打指定目标；attack_move=向目标区域推进并在途中交战；move=纯移动；retreat=撤回己方指挥所；hold=原地防守；guard=守卫己方指挥所周边；board=走向并乘驾"可用载具"里指定 id 的空载具；dismount=离开当前载具恢复步兵。',
+    '说明：动作 attack=打指定目标；attack_move=向目标区域推进并在途中交战；move=纯移动；retreat=撤回己方指挥所；hold=原地防守；guard=守卫己方指挥所周边；board=走向并乘驾"可用载具"里指定 id 的空载具；dismount=离开当前载具恢复步兵；cover=进入最近的空闲沙袋阵地并继续交战；highground=登上最近的空闲山顶观察位。cover 与 highground 不需要"目标"字段，系统会自己挑格。',
     '若无需切换武器，"武器"可省略。',
   ];
   return lines.join('\n');
@@ -75,23 +77,6 @@ function kindOf(e) {
 }
 
 const TERRAIN_NAMES = ['草地', '水域', '矿石', '岩石', '混凝土', '沙地', '树林', '山包坡地', '山顶', '沙袋阵地'];
-
-// 地形在地图生成后不再变化，战术格按 map 对象记忆化一次即可，避免每次快照扫 4096 格
-const reliefMemo = new WeakMap();
-function reliefTiles(map) {
-  let r = reliefMemo.get(map);
-  if (r) return r;
-  r = { summits: [], posts: [] };
-  for (let y = 0; y < MAP_HEIGHT; y++) {
-    for (let x = 0; x < MAP_WIDTH; x++) {
-      const t = map.terrain[y][x];
-      if (t === HILL_TOP) r.summits.push({ x: x, y: y });
-      else if (t === SANDBAG) r.posts.push({ x: x, y: y });
-    }
-  }
-  reliefMemo.set(map, r);
-  return r;
-}
 
 function nearestRelief(from, list) {
   let best = null, bd = Infinity;
@@ -152,17 +137,20 @@ export function buildSnapshot(gameState, member, ctx) {
       };
     });
 
-  const mates = gameState.entities
-    .filter(function (e) { return !e.dead && e.isMember && e.team === member.team && e !== member; })
-    .map(function (e) {
-      return {
-        名称: e.memberName,
-        血量: Math.ceil(e.hp) + '/' + e.maxHp,
-        距离: distTiles(member, e),
-        状态: e.attackTarget ? '交战中' : (e.path && e.path.length ? '移动中' : '待命'),
-        位置: tileOf(e),
-      };
-    });
+  const squad = buildSquadBoard(gameState, member);
+  const mates = squad.mates.map(function (e) {
+    let 状态 = e.attackTarget ? '交战中' : (e.path && e.path.length ? '移动中' : '待命');
+    if (e.onHighGround) 状态 = '占山顶' + (e.attackTarget ? '并开火' : '');
+    else if (onSandbag(gameState.map, e)) 状态 = '进沙袋' + (e.attackTarget ? '并开火' : '');
+    return {
+      名称: e.memberName,
+      血量: Math.ceil(e.hp) + '/' + e.maxHp,
+      距离: distTiles(member, e),
+      状态: 状态,
+      位置: tileOf(e),
+      正在打: e.attackTarget && !e.attackTarget.dead ? e.attackTarget.memberName || e.attackTarget.name : null,
+    };
+  });
 
   // 己方可乘驾载具（停放中），供成员自主选择上车
   const mounts = gameState.entities
@@ -208,6 +196,7 @@ export function buildSnapshot(gameState, member, ctx) {
     掩体: covers,
     地形: terrainInfo(gameState, member),
     队友: mates,
+    协同: squadBrief(squad),
     最近事件: ctx.events.slice(-4),
     队友消息: ctx.allyMsgs.slice(-3),
     敌方喊话: ctx.enemyMsgs.slice(-3),

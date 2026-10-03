@@ -206,7 +206,7 @@ body.sandbox .mode-card.easy:hover { box-shadow: 0 0 18px rgba(74, 159, 212, .35
 .chat-entry.shout-ally .body { color: #cfe6f7; }
 .chat-entry.shout-enemy .body { color: var(--vs-gold); font-weight: bold; text-shadow: 0 0 8px rgba(241, 196, 15, .45); }
 
-#chatQuick { display: flex; align-items: center; gap: 6px; padding: 4px 10px; border-top: 1px solid #1e1e30; }
+#chatQuick { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; padding: 4px 10px; border-top: 1px solid #1e1e30; }
 #chatQuick button {
   background: linear-gradient(180deg, #23233a, #14141f);
   color: #ccc; border: 1px solid #34344a;
