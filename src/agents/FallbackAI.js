@@ -69,8 +69,9 @@ const FAN = [[0, 0], [2, -2], [-2, 2], [3, 1], [-3, -1]];
 function fanPoint(gameState, member, base) {
   const map = gameState.map;
   const idx = teamIndex(gameState, member);
+  // 步长 3 与偏移数 5 互质：首选择格走不到时，各人的顺延顺序也不会撞在一起
   for (let k = 0; k < FAN.length; k++) {
-    const off = FAN[(idx + k) % FAN.length];
+    const off = FAN[(idx + k * 3) % FAN.length];
     const x = Math.round(base.x + off[0]), y = Math.round(base.y + off[1]);
     if (x < 0 || y < 0 || x >= MAP_WIDTH || y >= MAP_HEIGHT) continue;
     if (map && map.isPassableForUnit && !map.isPassableForUnit(x, y, member)) continue;
