@@ -972,6 +972,9 @@ export class Renderer {
     var tick = 'rgba(255,255,255,0.30)';
     var text = 'rgba(226,232,238,0.92)';
     var ox = layout.chatWidth;
+    // 顶部 HUD 栏（#topBar）覆盖在 canvas 上方：标尺条贴着 HUD 下沿画，避免被遮挡
+    var hud = document.getElementById('topBar');
+    var topY = hud ? hud.offsetHeight : 0;
     ctx.save();
     ctx.font = '10px "Segoe UI", Arial, sans-serif';
     ctx.textAlign = 'center';
@@ -979,25 +982,25 @@ export class Renderer {
 
     // 顶部横条（x 轴刻度）
     ctx.fillStyle = bar;
-    ctx.fillRect(ox, 0, viewWidth, RULER_H);
+    ctx.fillRect(ox, topY, viewWidth, RULER_H);
     ctx.fillStyle = edge;
-    ctx.fillRect(ox, RULER_H - 1, viewWidth, 1);
+    ctx.fillRect(ox, topY + RULER_H - 1, viewWidth, 1);
     var tx0 = Math.max(0, Math.floor(camera.x / camera.zoom / TILE_SIZE));
     var tx1 = Math.min(MAP_WIDTH - 1, Math.floor((camera.x + viewWidth) / camera.zoom / TILE_SIZE));
     for (var tx = tx0; tx <= tx1; tx++) {
       if (tx % step !== 0) continue;
       var sx = ox + tx * ts - camera.x;
       ctx.fillStyle = tick;
-      ctx.fillRect(Math.round(sx) - 0.5, RULER_H - 4, 1, 4);
+      ctx.fillRect(Math.round(sx) - 0.5, topY + RULER_H - 4, 1, 4);
       ctx.fillStyle = text;
-      ctx.fillText(String(tx), sx + ts / 2, RULER_H / 2 - 1);
+      ctx.fillText(String(tx), sx + ts / 2, topY + RULER_H / 2 - 1);
     }
 
     // 左侧竖条（y 轴刻度）
     ctx.fillStyle = bar;
-    ctx.fillRect(ox, RULER_H, RULER_W, viewHeight - RULER_H);
+    ctx.fillRect(ox, topY + RULER_H, RULER_W, viewHeight - topY - RULER_H);
     ctx.fillStyle = edge;
-    ctx.fillRect(ox + RULER_W - 1, RULER_H, 1, viewHeight - RULER_H);
+    ctx.fillRect(ox + RULER_W - 1, topY + RULER_H, 1, viewHeight - topY - RULER_H);
     var ty0 = Math.max(0, Math.floor(camera.y / camera.zoom / TILE_SIZE));
     var ty1 = Math.min(MAP_HEIGHT - 1, Math.floor((camera.y + viewHeight) / camera.zoom / TILE_SIZE));
     for (var ty = ty0; ty <= ty1; ty++) {
@@ -1011,9 +1014,9 @@ export class Renderer {
 
     // 左上角十字区
     ctx.fillStyle = bar;
-    ctx.fillRect(ox, 0, RULER_W, RULER_H);
+    ctx.fillRect(ox, topY, RULER_W, RULER_H);
     ctx.fillStyle = text;
-    ctx.fillText('x\\y', ox + RULER_W / 2, RULER_H / 2 - 1);
+    ctx.fillText('x\\y', ox + RULER_W / 2, topY + RULER_H / 2 - 1);
 
     // 鼠标所在格坐标提示：指哪读哪，报点更顺手
     if (mouse.inCanvas) {

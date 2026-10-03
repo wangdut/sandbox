@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>虚拟沙盘 · 红警风即时战术</title>
+<title>虚拟沙盘 · 即时战术</title>
 <link rel="stylesheet" href="css/style.css">
 <link rel="stylesheet" href="css/sandbox.css">
 </head>
@@ -11,7 +11,7 @@
 
 <div id="startScreen">
   <h1>VIRTUAL SANDBOX</h1>
-  <h2>虚拟沙盘 · 红警风即时战术</h2>
+  <h2>虚拟沙盘 · 即时战术</h2>
   <p class="sub">6 名虚拟成员 · 你指挥己方 3 名 · 摧毁对方指挥所即获胜</p>
   <div class="mode-container">
     <div class="mode-card easy" onclick="startGame('blue')">
@@ -74,13 +74,31 @@
   <button id="pauseBtn" onclick="togglePause()">暂停</button>
   <div id="speedBox">
     <label class="tune" title="移动速度倍率：只影响成员移动，子弹速度与思考节奏不变">移速
-      <input type="number" id="moveSpeed" value="1" min="0" max="20" step="0.1" onchange="setMoveSpeed(this.value)">×
+      <span class="nudge">
+        <input type="number" id="moveSpeed" value="1" min="0" max="20" step="0.1" onchange="setMoveSpeed(this.value)">
+        <span class="nudge-btns">
+          <button type="button" onclick="nudgeValue('moveSpeed', 0.1)" title="+0.1">▲</button>
+          <button type="button" onclick="nudgeValue('moveSpeed', -0.1)" title="-0.1">▼</button>
+        </span>
+      </span>×
     </label>
     <label class="tune" title="攻击速度倍率：0.5 = 射速减半，给成员留出决策时间">攻速
-      <input type="number" id="atkSpeed" value="0.5" min="0.1" max="10" step="0.1" onchange="setAttackSpeed(this.value)">×
+      <span class="nudge">
+        <input type="number" id="atkSpeed" value="0.5" min="0.1" max="10" step="0.1" onchange="setAttackSpeed(this.value)">
+        <span class="nudge-btns">
+          <button type="button" onclick="nudgeValue('atkSpeed', 0.1)" title="+0.1">▲</button>
+          <button type="button" onclick="nudgeValue('atkSpeed', -0.1)" title="-0.1">▼</button>
+        </span>
+      </span>×
     </label>
     <label class="tune" title="伤害倍率：0.5 = 伤害减半，避免见面即被秒">伤害
-      <input type="number" id="dmgMult" value="0.5" min="0.1" max="10" step="0.1" onchange="setDamageMult(this.value)">×
+      <span class="nudge">
+        <input type="number" id="dmgMult" value="0.5" min="0.1" max="10" step="0.1" onchange="setDamageMult(this.value)">
+        <span class="nudge-btns">
+          <button type="button" onclick="nudgeValue('dmgMult', 0.1)" title="+0.1">▲</button>
+          <button type="button" onclick="nudgeValue('dmgMult', -0.1)" title="-0.1">▼</button>
+        </span>
+      </span>×
     </label>
   </div>
   <button id="budgetBtn" onclick="addTokenBudget(50000)" title="本局 token 额度 +5 万，并立刻解除成员的降级状态">+5万额度</button>
@@ -188,6 +206,20 @@
 </div>
 
 <div id="notification"></div>
+<script>
+// 倍率输入框的上下步进按钮：每次 ±0.1（四舍五入到一位小数），自动触发输入框原有的 onchange
+function nudgeValue(id, delta) {
+  const el = document.getElementById(id);
+  if (!el) return;
+  let v = parseFloat(el.value);
+  if (isNaN(v)) v = 0;
+  v = Math.round((v + delta) * 100) / 100;
+  if (el.min !== '' && v < parseFloat(el.min)) v = parseFloat(el.min);
+  if (el.max !== '' && v > parseFloat(el.max)) v = parseFloat(el.max);
+  el.value = v;
+  el.dispatchEvent(new Event('change', { bubbles: false }));
+}
+</script>
 <script type="module" src="src/main.js"></script>
 </body>
 </html>

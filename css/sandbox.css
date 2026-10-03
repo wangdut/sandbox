@@ -77,6 +77,16 @@ body.sandbox #topBar {
 #speedBox .tune input::-webkit-outer-spin-button,
 #speedBox .tune input::-webkit-inner-spin-button { -webkit-appearance: none; margin: 0; }
 #speedBox .tune input:focus { border-color: #c0392b; outline: none; }
+/* 倍率输入框右侧的 ±0.1 步进按钮 */
+#speedBox .tune .nudge { display: inline-flex; align-items: center; gap: 2px; }
+#speedBox .tune .nudge-btns { display: inline-flex; flex-direction: column; gap: 1px; }
+#speedBox .tune .nudge-btns button {
+  width: 15px; height: 10px; padding: 0; line-height: 9px;
+  background: #1c1c2e; color: #f1c40f; border: 1px solid #34344a;
+  border-radius: 2px; font-size: 7px; cursor: pointer;
+}
+#speedBox .tune .nudge-btns button:hover { background: #2c2c48; border-color: #c0392b; }
+#speedBox .tune .nudge-btns button:active { transform: translateY(1px); }
 
 #budgetBtn, #endBtn, #restartBtn {
   background: linear-gradient(180deg, #23233a, #14141f);
